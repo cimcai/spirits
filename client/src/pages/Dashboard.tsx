@@ -12,28 +12,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Bot, Radio, Sparkles } from "lucide-react";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
 
-const SAMPLE_CONVERSATIONS = [
-  { speaker: "Alice", content: "I've been thinking about switching our cloud provider. The current costs are getting out of hand." },
-  { speaker: "Bob", content: "What alternatives have you looked at? AWS has some good enterprise pricing." },
-  { speaker: "Alice", content: "We've compared AWS, Google Cloud, and Azure. The migration costs are a concern though." },
-  { speaker: "Carol", content: "Don't forget about the learning curve for the team. That's hidden cost too." },
-  { speaker: "Bob", content: "True. Has anyone done a total cost of ownership analysis?" },
-  { speaker: "Alice", content: "Not yet. We should probably bring in a consultant for that." },
-  { speaker: "David", content: "I know a great firm that specializes in cloud migration assessments." },
-  { speaker: "Carol", content: "That would be helpful. What's their typical engagement look like?" },
-  { speaker: "David", content: "Usually 2-3 weeks for initial assessment, then they provide a detailed roadmap." },
-  { speaker: "Alice", content: "Perfect. Can you send me their contact details? We should set up a call." },
-  { speaker: "Bob", content: "Before we reach out, we should align on our budget constraints." },
-  { speaker: "Carol", content: "Good point. What's our current annual cloud spend?" },
-  { speaker: "Alice", content: "Around $2.4 million. We're hoping to reduce that by at least 20%." },
-  { speaker: "David", content: "That's achievable with the right optimization strategy." },
-  { speaker: "Bob", content: "Should we schedule a follow-up meeting to discuss this further?" },
-];
 
 export default function Dashboard() {
   const { toast } = useToast();
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
-  const messageIndexRef = useRef(0);
+  const [isGenerating, setIsGenerating] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch active room
@@ -64,22 +47,24 @@ export default function Dashboard() {
     enabled: !!room?.id,
   });
 
-  // Add conversation entry mutation
-  const addEntryMutation = useMutation({
-    mutationFn: async (data: { speaker: string; content: string }) => {
-      return apiRequest("POST", `/api/rooms/${room?.id}/entries`, data);
+  // Generate philosophical dialogue mutation
+  const generateDialogueMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/rooms/${room?.id}/generate-dialogue`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "analyses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "calls"] });
+      setIsGenerating(false);
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to add message",
+        description: "Failed to generate dialogue",
         variant: "destructive",
       });
+      setIsGenerating(false);
     },
   });
 
@@ -92,7 +77,6 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "analyses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "calls"] });
-      messageIndexRef.current = 0;
       toast({
         title: "Room Reset",
         description: "Conversation has been cleared",
@@ -100,22 +84,21 @@ export default function Dashboard() {
     },
   });
 
-  // Add a sample message
-  const addSampleMessage = useCallback(() => {
-    if (!room?.id) return;
-    const currentIndex = messageIndexRef.current;
-    const message = SAMPLE_CONVERSATIONS[currentIndex % SAMPLE_CONVERSATIONS.length];
-    addEntryMutation.mutate(message);
-    messageIndexRef.current = currentIndex + 1;
-  }, [room?.id, addEntryMutation]);
+  // Generate a new philosophical dialogue message
+  const generateNewDialogue = useCallback(() => {
+    if (!room?.id || isGenerating) return;
+    setIsGenerating(true);
+    generateDialogueMutation.mutate();
+  }, [room?.id, isGenerating, generateDialogueMutation]);
 
-  // Start simulation
+  // Start simulation - generate philosophical dialogue every 6 seconds
   const startSimulation = useCallback(() => {
     setIsSimulationRunning(true);
+    generateNewDialogue(); // Generate first message immediately
     intervalRef.current = setInterval(() => {
-      addSampleMessage();
-    }, 4000);
-  }, [addSampleMessage]);
+      generateNewDialogue();
+    }, 6000); // 6 seconds to allow for AI generation time
+  }, [generateNewDialogue]);
 
   // Pause simulation
   const pauseSimulation = useCallback(() => {
@@ -171,9 +154,9 @@ export default function Dashboard() {
               <Bot className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">AI Model Aggregator</h1>
+              <h1 className="text-xl font-bold">Philosophical Insight</h1>
               <p className="text-sm text-muted-foreground">
-                Intelligent outbound call triggers
+                AI philosophers in dialogue
               </p>
             </div>
           </div>
@@ -195,10 +178,10 @@ export default function Dashboard() {
         <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 flex items-start gap-3">
           <Sparkles className="h-5 w-5 text-primary shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium">How it works</p>
+            <p className="text-sm font-medium">Philosophical Insight</p>
             <p className="text-sm text-muted-foreground">
-              AI models analyze the conversation stream in real-time. When a model determines it's the right moment to contribute, 
-              it triggers an outbound call with its response. Start the simulation to see it in action.
+              Watch philosophical dialogue unfold in real-time. Three AI philosophers analyze the conversation and offer their unique perspectives.
+              Click their pulsing lights when you want to hear their wisdom.
             </p>
           </div>
         </div>
@@ -228,7 +211,7 @@ export default function Dashboard() {
                     key={model.id}
                     model={model}
                     analyses={getModelAnalyses(model.id)}
-                    isProcessing={addEntryMutation.isPending}
+                    isProcessing={isGenerating}
                     roomId={room?.id}
                     latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
                   />
@@ -244,9 +227,10 @@ export default function Dashboard() {
               onStart={startSimulation}
               onPause={pauseSimulation}
               onReset={handleReset}
-              onTriggerSample={addSampleMessage}
+              onTriggerSample={generateNewDialogue}
               entryCount={entries.length}
               callCount={calls.length}
+              isGenerating={isGenerating}
             />
             <CallLog calls={calls} models={models} />
           </div>

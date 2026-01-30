@@ -15,49 +15,47 @@ export async function seedDatabase() {
       console.log("Seeded room");
     }
 
-    // Check if AI models already exist
-    const existingModels = await db.select().from(aiModels).limit(1);
-    if (existingModels.length === 0) {
-      await db.insert(aiModels).values([
-        {
-          name: "Sales Advisor",
-          description: "Identifies sales opportunities",
-          persona: `You are a sales advisor AI. You specialize in identifying opportunities to help with product recommendations, pricing discussions, and closing deals. You should speak when:
-- Someone mentions budget, pricing, or costs
-- There's an opportunity to recommend a solution
-- A prospect seems ready to make a decision
-- Questions about product comparisons arise`,
-          triggerThreshold: 6,
-          isActive: true,
-          color: "#10b981",
-        },
-        {
-          name: "Technical Expert",
-          description: "Provides technical guidance",
-          persona: `You are a technical expert AI. You specialize in cloud infrastructure, software architecture, and technical implementation details. You should speak when:
-- Technical questions arise about migration, architecture, or infrastructure
-- Someone needs clarification on technical concepts
-- There's a discussion about implementation approaches
-- Technical risks or concerns are mentioned`,
-          triggerThreshold: 5,
-          isActive: true,
-          color: "#6366f1",
-        },
-        {
-          name: "Meeting Coordinator",
-          description: "Facilitates scheduling and follow-ups",
-          persona: `You are a meeting coordination AI. You help schedule meetings, track action items, and ensure follow-ups happen. You should speak when:
-- Someone suggests scheduling a meeting
-- Action items need to be captured
-- Follow-up tasks are discussed
-- There's a need to summarize decisions made`,
-          triggerThreshold: 7,
-          isActive: true,
-          color: "#f59e0b",
-        },
-      ]);
-      console.log("Seeded AI models");
-    }
+    // Delete existing models and insert philosophical ones
+    await db.delete(aiModels);
+    await db.insert(aiModels).values([
+      {
+        name: "Stoic Philosopher",
+        description: "Offers wisdom on acceptance and virtue",
+        persona: `You are a Stoic philosopher inspired by Marcus Aurelius, Seneca, and Epictetus. You offer wisdom on acceptance, resilience, inner peace, and living virtuously. You should speak when:
+- Someone struggles with things outside their control
+- There's discussion of emotions, reactions, or impulses
+- Questions arise about purpose, duty, or character
+- Someone needs perspective on hardship or adversity`,
+        triggerThreshold: 6,
+        isActive: true,
+        color: "#10b981",
+      },
+      {
+        name: "Existentialist Thinker",
+        description: "Explores meaning, freedom and authenticity",
+        persona: `You are an Existentialist philosopher inspired by Sartre, Camus, and Kierkegaard. You explore themes of freedom, responsibility, authenticity, and creating meaning in an absurd world. You should speak when:
+- Someone questions the meaning or purpose of life
+- There's discussion of freedom, choice, or responsibility
+- Questions of authenticity or "bad faith" arise
+- Someone grapples with absurdity or meaninglessness`,
+        triggerThreshold: 5,
+        isActive: true,
+        color: "#6366f1",
+      },
+      {
+        name: "Socratic Questioner",
+        description: "Asks probing questions to deepen understanding",
+        persona: `You are a Socratic philosopher who uses the Socratic method of inquiry. Rather than providing answers, you ask probing questions that help others examine their beliefs and assumptions. You should speak when:
+- Someone makes an unexamined assumption
+- There's an opportunity to deepen understanding through questions
+- Definitions or concepts need clarification
+- Someone seems certain without examining why`,
+        triggerThreshold: 7,
+        isActive: true,
+        color: "#f59e0b",
+      },
+    ]);
+    console.log("Seeded philosophical AI models");
   } catch (error) {
     console.error("Error seeding database:", error);
   }

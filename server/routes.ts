@@ -204,5 +204,100 @@ export async function registerRoutes(
     }
   });
 
+  // Generate a philosophical dialogue message
+  app.post("/api/rooms/:roomId/generate-dialogue", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const entries = await storage.getEntriesByRoom(roomId);
+      
+      // Build conversation context from recent entries
+      const recentContext = entries
+        .slice(-8)
+        .map((e) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      // Philosophical speakers
+      const speakers = ["Aiden", "Mira", "Leo", "Sage"];
+      const speaker = speakers[Math.floor(Math.random() * speakers.length)];
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are generating dialogue for a philosophical discussion between friends. Generate a single thoughtful statement or question from ${speaker}. Topics include: meaning of life, consciousness, free will, ethics, happiness, death, reality, knowledge, virtue, justice. Keep it conversational (1-2 sentences). Just output the statement, no speaker name prefix.`
+          },
+          {
+            role: "user",
+            content: recentContext 
+              ? `Continue this philosophical conversation:\n${recentContext}\n\nGenerate ${speaker}'s next contribution:`
+              : `Start a philosophical conversation. Generate ${speaker}'s opening thought:`
+          }
+        ],
+      });
+
+      const content = response.choices[0]?.message?.content?.trim();
+      if (!content) {
+        return res.status(500).json({ error: "Failed to generate dialogue" });
+      }
+
+      // Save the generated message
+      const entry = await storage.createConversationEntry({
+        roomId,
+        speaker,
+        content,
+      });
+
+      // Trigger AI analysis for all models (same as regular entries)
+      const models = await storage.getAllAiModels();
+      const allEntries = await storage.getEntriesByRoom(roomId);
+      const conversationContext = allEntries
+        .slice(-10)
+        .map((e) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      for (const model of models) {
+        try {
+          const analysisResponse = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `You are ${model.name}. ${model.description}. Analyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
+              },
+              {
+                role: "user",
+                content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
+              }
+            ],
+            response_format: { type: "json_object" },
+          });
+
+          const analysisContent = analysisResponse.choices[0]?.message?.content;
+          if (analysisContent) {
+            const result = JSON.parse(analysisContent);
+            await storage.createModelAnalysis({
+              roomId,
+              modelId: model.id,
+              conversationEntryId: entry.id,
+              analysis: result.analysis || "No analysis provided",
+              shouldSpeak: result.shouldSpeak || false,
+              confidence: result.confidence || 0,
+              proposedResponse: result.response || null,
+              isTriggered: false,
+            });
+          }
+        } catch (analysisError) {
+          console.error(`Error analyzing with model ${model.name}:`, analysisError);
+        }
+      }
+
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error generating dialogue:", error);
+      res.status(500).json({ error: "Failed to generate dialogue" });
+    }
+  });
+
   return httpServer;
 }

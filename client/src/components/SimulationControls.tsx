@@ -10,6 +10,7 @@ interface SimulationControlsProps {
   onTriggerSample: () => void;
   entryCount: number;
   callCount: number;
+  isGenerating?: boolean;
 }
 
 export function SimulationControls({
@@ -20,6 +21,7 @@ export function SimulationControls({
   onTriggerSample,
   entryCount,
   callCount,
+  isGenerating = false,
 }: SimulationControlsProps) {
   return (
     <Card>
@@ -55,10 +57,11 @@ export function SimulationControls({
             onClick={onTriggerSample}
             variant="outline"
             className="w-full"
+            disabled={isGenerating}
             data-testid="button-add-message"
           >
             <Zap className="h-4 w-4 mr-2" />
-            Add Sample Message
+            {isGenerating ? "Generating..." : "Generate Dialogue"}
           </Button>
 
           <Button
