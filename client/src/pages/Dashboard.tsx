@@ -33,7 +33,7 @@ const SAMPLE_CONVERSATIONS = [
 export default function Dashboard() {
   const { toast } = useToast();
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
-  const [messageIndex, setMessageIndex] = useState(0);
+  const messageIndexRef = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch active room
@@ -92,7 +92,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "analyses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room?.id, "calls"] });
-      setMessageIndex(0);
+      messageIndexRef.current = 0;
       toast({
         title: "Room Reset",
         description: "Conversation has been cleared",
@@ -103,10 +103,11 @@ export default function Dashboard() {
   // Add a sample message
   const addSampleMessage = useCallback(() => {
     if (!room?.id) return;
-    const message = SAMPLE_CONVERSATIONS[messageIndex % SAMPLE_CONVERSATIONS.length];
+    const currentIndex = messageIndexRef.current;
+    const message = SAMPLE_CONVERSATIONS[currentIndex % SAMPLE_CONVERSATIONS.length];
     addEntryMutation.mutate(message);
-    setMessageIndex((prev) => prev + 1);
-  }, [room?.id, messageIndex, addEntryMutation]);
+    messageIndexRef.current = currentIndex + 1;
+  }, [room?.id, addEntryMutation]);
 
   // Start simulation
   const startSimulation = useCallback(() => {
