@@ -12,9 +12,10 @@ interface AiModelPanelProps {
   analyses: ModelAnalysis[];
   isProcessing?: boolean;
   roomId?: number;
+  latestEntryId?: number; // Used to calculate staleness/decay
 }
 
-export function AiModelPanel({ model, analyses, isProcessing = false, roomId }: AiModelPanelProps) {
+export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0 }: AiModelPanelProps) {
   const { toast } = useToast();
   
   // Get the latest untriggered analysis with a proposed response
@@ -22,8 +23,17 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId }: 
     .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
-  const confidence = latestActiveAnalysis?.confidence || 0;
-  const hasResponse = !!latestActiveAnalysis?.proposedResponse;
+  // Calculate staleness - how many messages since this analysis
+  const analysisEntryId = latestActiveAnalysis?.conversationEntryId || 0;
+  const messagesSinceAnalysis = latestEntryId - analysisEntryId;
+  
+  // Decay confidence: lose 15% per message, floor at 0
+  const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
+  const rawConfidence = latestActiveAnalysis?.confidence || 0;
+  const confidence = Math.round(rawConfidence * decayFactor);
+  
+  // Only show response if confidence hasn't fully decayed
+  const hasResponse = !!latestActiveAnalysis?.proposedResponse && confidence > 5;
 
   // Trigger mutation
   const triggerMutation = useMutation({

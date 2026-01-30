@@ -230,6 +230,7 @@ export default function Dashboard() {
                     analyses={getModelAnalyses(model.id)}
                     isProcessing={addEntryMutation.isPending}
                     roomId={room?.id}
+                    latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
                   />
                 ))}
               </div>
