@@ -124,6 +124,85 @@ export default function Dashboard() {
     };
   }, []);
 
+  // Trigger philosopher and play TTS
+  const triggerPhilosopher = useCallback(async (modelIndex: number) => {
+    const model = models[modelIndex];
+    if (!model || !room?.id) return;
+
+    const modelAnalyses = analyses.filter((a) => a.modelId === model.id);
+    const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
+    
+    // Get the latest untriggered analysis with a proposed response
+    const latestActiveAnalysis = modelAnalyses
+      .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+    if (!latestActiveAnalysis) return;
+
+    // Calculate decayed confidence
+    const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
+    const messagesSinceAnalysis = latestEntryId - analysisEntryId;
+    const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
+    const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor);
+    
+    if (confidence <= 5) return; // Too stale
+
+    try {
+      // Trigger the analysis
+      await apiRequest("POST", `/api/analyses/${latestActiveAnalysis.id}/trigger`, {});
+      
+      // Refresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "analyses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "calls"] });
+
+      toast({
+        title: `${model.name} spoke!`,
+        description: "Response added to the conversation",
+      });
+
+      // Play TTS for the response
+      if (latestActiveAnalysis.proposedResponse) {
+        const audioResponse = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            text: latestActiveAnalysis.proposedResponse,
+            voice: modelIndex === 0 ? "onyx" : modelIndex === 1 ? "nova" : "echo"
+          }),
+        });
+        
+        if (audioResponse.ok) {
+          const audioBlob = await audioResponse.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+          audio.play();
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to trigger response",
+        variant: "destructive",
+      });
+    }
+  }, [models, analyses, entries, room, toast]);
+
+  // Keyboard shortcuts for triggering philosophers (1, 2, 3 keys)
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      if (e.key === "1") triggerPhilosopher(0);
+      else if (e.key === "2") triggerPhilosopher(1);
+      else if (e.key === "3") triggerPhilosopher(2);
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [triggerPhilosopher]);
+
   // Get analyses for a specific model
   const getModelAnalyses = (modelId: number) => {
     return analyses.filter((a) => a.modelId === modelId);
