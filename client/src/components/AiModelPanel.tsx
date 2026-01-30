@@ -35,6 +35,33 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   // Only show response if confidence hasn't fully decayed
   const hasResponse = !!latestActiveAnalysis?.proposedResponse && confidence > 5;
 
+  // Determine voice based on model color
+  const getVoice = () => {
+    if (model.color === "#10b981") return "onyx";   // Stoic - deep voice
+    if (model.color === "#6366f1") return "nova";   // Existentialist - expressive
+    return "echo";                                    // Socratic - contemplative
+  };
+
+  // Play TTS audio
+  const playTTS = async (text: string) => {
+    try {
+      const audioResponse = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: getVoice() }),
+      });
+      
+      if (audioResponse.ok) {
+        const audioBlob = await audioResponse.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.play();
+      }
+    } catch (error) {
+      console.error("TTS error:", error);
+    }
+  };
+
   // Trigger mutation
   const triggerMutation = useMutation({
     mutationFn: async (analysisId: number) => {
@@ -50,6 +77,11 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
         title: `${model.name} spoke!`,
         description: "Response added to the conversation",
       });
+      
+      // Play TTS for the response
+      if (latestActiveAnalysis?.proposedResponse) {
+        playTTS(latestActiveAnalysis.proposedResponse);
+      }
     },
     onError: () => {
       toast({

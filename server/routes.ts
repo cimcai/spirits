@@ -299,5 +299,44 @@ export async function registerRoutes(
     }
   });
 
+  // Text-to-Speech endpoint
+  app.post("/api/tts", async (req, res) => {
+    try {
+      const { text, voice = "alloy" } = req.body;
+      
+      if (!text || typeof text !== "string") {
+        return res.status(400).json({ error: "Text is required" });
+      }
+
+      // Use OpenAI TTS via gpt-audio model
+      const response = await openai.chat.completions.create({
+        model: "gpt-audio",
+        modalities: ["text", "audio"],
+        audio: { voice, format: "wav" },
+        messages: [
+          { role: "system", content: "You are an assistant that performs text-to-speech. Speak with the gravitas and wisdom befitting a philosopher." },
+          { role: "user", content: `Repeat the following text verbatim: ${text}` },
+        ],
+      });
+
+      const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
+      
+      if (!audioData) {
+        return res.status(500).json({ error: "No audio generated" });
+      }
+
+      const audioBuffer = Buffer.from(audioData, "base64");
+      
+      res.set({
+        "Content-Type": "audio/wav",
+        "Content-Length": audioBuffer.length.toString(),
+      });
+      res.send(audioBuffer);
+    } catch (error) {
+      console.error("Error generating TTS:", error);
+      res.status(500).json({ error: "Failed to generate speech" });
+    }
+  });
+
   return httpServer;
 }
