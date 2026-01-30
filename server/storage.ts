@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
   rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses,
@@ -36,7 +36,9 @@ export interface IStorage {
 
   // Model Analyses
   getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]>;
+  getLatestAnalysisByModel(roomId: number, modelId: number): Promise<ModelAnalysis | undefined>;
   createModelAnalysis(analysis: InsertModelAnalysis): Promise<ModelAnalysis>;
+  markAnalysisTriggered(id: number): Promise<void>;
   deleteAnalysesByRoom(roomId: number): Promise<void>;
 
   // Outbound Calls
@@ -132,9 +134,21 @@ export class DatabaseStorage implements IStorage {
       .orderBy(modelAnalyses.createdAt);
   }
 
+  async getLatestAnalysisByModel(roomId: number, modelId: number): Promise<ModelAnalysis | undefined> {
+    const [analysis] = await db.select().from(modelAnalyses)
+      .where(and(eq(modelAnalyses.roomId, roomId), eq(modelAnalyses.modelId, modelId)))
+      .orderBy(desc(modelAnalyses.createdAt))
+      .limit(1);
+    return analysis;
+  }
+
   async createModelAnalysis(analysis: InsertModelAnalysis): Promise<ModelAnalysis> {
     const [created] = await db.insert(modelAnalyses).values(analysis).returning();
     return created;
+  }
+
+  async markAnalysisTriggered(id: number): Promise<void> {
+    await db.update(modelAnalyses).set({ isTriggered: true }).where(eq(modelAnalyses.id, id));
   }
 
   async deleteAnalysesByRoom(roomId: number): Promise<void> {

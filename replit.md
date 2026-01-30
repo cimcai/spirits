@@ -2,7 +2,13 @@
 
 ## Overview
 
-This is an AI-powered conversation monitoring application that simulates real-time conversation analysis. Multiple AI models analyze incoming conversation streams and can trigger outbound calls when they detect appropriate moments to speak. The application demonstrates an AI model aggregator pattern where different specialized AI personas (Sales Advisor, Technical Expert, Meeting Coordinator) evaluate conversations and decide when to intervene.
+This is an AI-powered conversation monitoring application that simulates real-time conversation analysis. Multiple AI models analyze incoming conversation streams and display pulsing light indicators showing how confident they are about contributing. Users click the pulsing lights to insert the AI's proposed response into the conversation.
+
+### Key Features
+- **Pulsing Light Orbs**: Each AI model displays a pulsing orb with intensity based on confidence (0-100% Value Score)
+- **User-Initiated Responses**: Click the orb or "Click to Speak" button to trigger the AI's response
+- **Three AI Personas**: Sales Advisor (green), Technical Expert (indigo), Meeting Coordinator (amber)
+- **Real-Time Analysis**: AI models analyze conversations using gpt-4o-mini and determine when to contribute
 
 ## User Preferences
 

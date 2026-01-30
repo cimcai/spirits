@@ -97,6 +97,8 @@ export const modelAnalyses = pgTable("model_analyses", {
   analysis: text("analysis").notNull(),
   shouldSpeak: boolean("should_speak").default(false).notNull(),
   confidence: integer("confidence").default(0).notNull(),
+  proposedResponse: text("proposed_response"),
+  isTriggered: boolean("is_triggered").default(false).notNull(),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

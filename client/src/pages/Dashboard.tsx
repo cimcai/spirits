@@ -229,6 +229,7 @@ export default function Dashboard() {
                     model={model}
                     analyses={getModelAnalyses(model.id)}
                     isProcessing={addEntryMutation.isPending}
+                    roomId={room?.id}
                   />
                 ))}
               </div>

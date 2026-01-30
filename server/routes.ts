@@ -64,43 +64,29 @@ export async function registerRoutes(
         .map((e) => `${e.speaker}: ${e.content}`)
         .join("\n");
 
-      // Analyze with each model
+      // Analyze with each model in parallel
       for (const model of models) {
         try {
           const response = await openai.chat.completions.create({
-            model: "gpt-5-nano",
+            model: "gpt-4o-mini",
             messages: [
               {
                 role: "system",
-                content: `You are ${model.name}. ${model.persona}
-
-Analyze the conversation and determine if you should speak. Consider:
-1. Is there a direct question or topic that matches your expertise?
-2. Would your input add significant value right now?
-3. Is this an appropriate moment to interject?
-
-Respond in JSON format:
-{
-  "shouldSpeak": boolean,
-  "confidence": number (0-100),
-  "analysis": "Brief analysis of why you should or shouldn't speak",
-  "response": "If shouldSpeak is true, your proposed response" 
-}`
+                content: `You are ${model.name}. ${model.description}. Analyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
               },
               {
                 role: "user",
-                content: `Conversation:\n${conversationContext}\n\nShould you speak now?`
+                content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
               }
             ],
             response_format: { type: "json_object" },
-            max_completion_tokens: 500,
           });
 
           const content = response.choices[0]?.message?.content;
           if (content) {
             const result = JSON.parse(content);
             
-            // Save analysis
+            // Save analysis with proposed response (don't auto-trigger)
             await storage.createModelAnalysis({
               roomId,
               modelId: model.id,
@@ -108,18 +94,9 @@ Respond in JSON format:
               analysis: result.analysis || "No analysis provided",
               shouldSpeak: result.shouldSpeak || false,
               confidence: result.confidence || 0,
+              proposedResponse: result.response || null,
+              isTriggered: false,
             });
-
-            // If model wants to speak, create outbound call
-            if (result.shouldSpeak && result.confidence >= model.triggerThreshold * 10) {
-              await storage.createOutboundCall({
-                roomId,
-                modelId: model.id,
-                triggerReason: result.analysis,
-                responseContent: result.response || "No response generated",
-                status: "completed",
-              });
-            }
           }
         } catch (analysisError) {
           console.error(`Error analyzing with model ${model.name}:`, analysisError);
@@ -130,6 +107,53 @@ Respond in JSON format:
     } catch (error) {
       console.error("Error creating entry:", error);
       res.status(500).json({ error: "Failed to create entry" });
+    }
+  });
+
+  // Trigger an AI model's response (when user clicks the pulsing light)
+  app.post("/api/analyses/:analysisId/trigger", async (req, res) => {
+    try {
+      const analysisId = parseInt(req.params.analysisId);
+      const analyses = await storage.getAnalysesByRoom(1); // Get all to find the one
+      const analysis = analyses.find(a => a.id === analysisId);
+      
+      if (!analysis) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+
+      if (!analysis.proposedResponse) {
+        return res.status(400).json({ error: "No proposed response available" });
+      }
+
+      // Get the model name to use as speaker
+      const model = await storage.getAiModel(analysis.modelId);
+      if (!model) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+
+      // Mark analysis as triggered
+      await storage.markAnalysisTriggered(analysisId);
+
+      // Add the AI's response to the conversation
+      const entry = await storage.createConversationEntry({
+        roomId: analysis.roomId,
+        speaker: model.name,
+        content: analysis.proposedResponse,
+      });
+
+      // Create an outbound call record
+      await storage.createOutboundCall({
+        roomId: analysis.roomId,
+        modelId: analysis.modelId,
+        triggerReason: analysis.analysis,
+        responseContent: analysis.proposedResponse,
+        status: "completed",
+      });
+
+      res.status(201).json({ entry, triggered: true });
+    } catch (error) {
+      console.error("Error triggering response:", error);
+      res.status(500).json({ error: "Failed to trigger response" });
     }
   });
 
