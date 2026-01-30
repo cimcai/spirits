@@ -70,6 +70,9 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   const pulseIntensity = confidence / 100;
   const glowSize = 8 + (pulseIntensity * 24); // 8px to 32px
   const animationDuration = 2 - (pulseIntensity * 1.2); // 2s to 0.8s (faster = higher confidence)
+  
+  // Scale orb size based on confidence: 48px (min) to 80px (max)
+  const orbSize = 48 + (pulseIntensity * 32);
 
   return (
     <Card 
@@ -127,10 +130,12 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
               </>
             )}
             
-            {/* Main orb */}
+            {/* Main orb - size scales with confidence */}
             <div
-              className="relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+              className="relative rounded-full flex items-center justify-center transition-all duration-500 group-hover:scale-110"
               style={{
+                width: `${orbSize}px`,
+                height: `${orbSize}px`,
                 backgroundColor: hasResponse ? model.color : "#374151",
                 boxShadow: hasResponse 
                   ? `0 0 ${glowSize}px ${model.color}, 0 0 ${glowSize * 2}px ${model.color}40`
@@ -139,8 +144,10 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
               }}
             >
               <Sparkles 
-                className="h-8 w-8 transition-all"
+                className="transition-all"
                 style={{ 
+                  width: `${16 + pulseIntensity * 16}px`,
+                  height: `${16 + pulseIntensity * 16}px`,
                   color: hasResponse ? "#fff" : "#6b7280",
                   opacity: hasResponse ? 1 : 0.5,
                 }}
@@ -148,18 +155,23 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
             </div>
           </button>
 
-          {/* Confidence indicator */}
+          {/* Confidence indicator - always show last confidence while analyzing */}
           <div className="mt-4 text-center">
-            {isProcessing ? (
-              <Badge variant="outline" className="gap-1 bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse">
-                Analyzing...
-              </Badge>
-            ) : hasResponse ? (
+            {hasResponse || isProcessing ? (
               <>
-                <p className="text-2xl font-bold" style={{ color: model.color }}>
+                <p 
+                  className="text-2xl font-bold transition-all duration-300" 
+                  style={{ color: model.color, opacity: isProcessing ? 0.6 : 1 }}
+                >
                   {confidence}%
                 </p>
-                <p className="text-xs text-muted-foreground">Value Score</p>
+                <p className="text-xs text-muted-foreground">
+                  {isProcessing ? (
+                    <span className="animate-pulse">Analyzing...</span>
+                  ) : (
+                    "Value Score"
+                  )}
+                </p>
               </>
             ) : (
               <p className="text-xs text-muted-foreground">Waiting for analysis...</p>
