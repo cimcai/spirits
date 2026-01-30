@@ -1,38 +1,165 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { eq, desc } from "drizzle-orm";
+import { db } from "./db";
+import {
+  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses,
+  type Room, type InsertRoom,
+  type ConversationEntry, type InsertConversationEntry,
+  type AiModel, type InsertAiModel,
+  type OutboundCall, type InsertOutboundCall,
+  type ModelAnalysis, type InsertModelAnalysis,
+  type User, type InsertUser, users,
+} from "@shared/schema";
 
 export interface IStorage {
+  // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
+  // Rooms
+  getRoom(id: number): Promise<Room | undefined>;
+  getActiveRoom(): Promise<Room | undefined>;
+  getAllRooms(): Promise<Room[]>;
+  createRoom(room: InsertRoom): Promise<Room>;
+  resetRoom(id: number): Promise<void>;
+
+  // Conversation Entries
+  getConversationEntry(id: number): Promise<ConversationEntry | undefined>;
+  getEntriesByRoom(roomId: number): Promise<ConversationEntry[]>;
+  createConversationEntry(entry: InsertConversationEntry): Promise<ConversationEntry>;
+  deleteEntriesByRoom(roomId: number): Promise<void>;
+
+  // AI Models
+  getAiModel(id: number): Promise<AiModel | undefined>;
+  getAllAiModels(): Promise<AiModel[]>;
+  createAiModel(model: InsertAiModel): Promise<AiModel>;
+
+  // Model Analyses
+  getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]>;
+  createModelAnalysis(analysis: InsertModelAnalysis): Promise<ModelAnalysis>;
+  deleteAnalysesByRoom(roomId: number): Promise<void>;
+
+  // Outbound Calls
+  getCallsByRoom(roomId: number): Promise<OutboundCall[]>;
+  createOutboundCall(call: InsertOutboundCall): Promise<OutboundCall>;
+  updateCallStatus(id: number, status: string): Promise<void>;
+  deleteCallsByRoom(roomId: number): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
+  // Users
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  // Rooms
+  async getRoom(id: number): Promise<Room | undefined> {
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, id));
+    return room;
+  }
+
+  async getActiveRoom(): Promise<Room | undefined> {
+    const [room] = await db.select().from(rooms).where(eq(rooms.isActive, true)).limit(1);
+    return room;
+  }
+
+  async getAllRooms(): Promise<Room[]> {
+    return db.select().from(rooms).orderBy(desc(rooms.createdAt));
+  }
+
+  async createRoom(room: InsertRoom): Promise<Room> {
+    const [created] = await db.insert(rooms).values(room).returning();
+    return created;
+  }
+
+  async resetRoom(id: number): Promise<void> {
+    await this.deleteCallsByRoom(id);
+    await this.deleteAnalysesByRoom(id);
+    await this.deleteEntriesByRoom(id);
+  }
+
+  // Conversation Entries
+  async getConversationEntry(id: number): Promise<ConversationEntry | undefined> {
+    const [entry] = await db.select().from(conversationEntries).where(eq(conversationEntries.id, id));
+    return entry;
+  }
+
+  async getEntriesByRoom(roomId: number): Promise<ConversationEntry[]> {
+    return db.select().from(conversationEntries)
+      .where(eq(conversationEntries.roomId, roomId))
+      .orderBy(conversationEntries.timestamp);
+  }
+
+  async createConversationEntry(entry: InsertConversationEntry): Promise<ConversationEntry> {
+    const [created] = await db.insert(conversationEntries).values(entry).returning();
+    return created;
+  }
+
+  async deleteEntriesByRoom(roomId: number): Promise<void> {
+    await db.delete(conversationEntries).where(eq(conversationEntries.roomId, roomId));
+  }
+
+  // AI Models
+  async getAiModel(id: number): Promise<AiModel | undefined> {
+    const [model] = await db.select().from(aiModels).where(eq(aiModels.id, id));
+    return model;
+  }
+
+  async getAllAiModels(): Promise<AiModel[]> {
+    return db.select().from(aiModels).where(eq(aiModels.isActive, true));
+  }
+
+  async createAiModel(model: InsertAiModel): Promise<AiModel> {
+    const [created] = await db.insert(aiModels).values(model).returning();
+    return created;
+  }
+
+  // Model Analyses
+  async getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]> {
+    return db.select().from(modelAnalyses)
+      .where(eq(modelAnalyses.roomId, roomId))
+      .orderBy(modelAnalyses.createdAt);
+  }
+
+  async createModelAnalysis(analysis: InsertModelAnalysis): Promise<ModelAnalysis> {
+    const [created] = await db.insert(modelAnalyses).values(analysis).returning();
+    return created;
+  }
+
+  async deleteAnalysesByRoom(roomId: number): Promise<void> {
+    await db.delete(modelAnalyses).where(eq(modelAnalyses.roomId, roomId));
+  }
+
+  // Outbound Calls
+  async getCallsByRoom(roomId: number): Promise<OutboundCall[]> {
+    return db.select().from(outboundCalls)
+      .where(eq(outboundCalls.roomId, roomId))
+      .orderBy(desc(outboundCalls.createdAt));
+  }
+
+  async createOutboundCall(call: InsertOutboundCall): Promise<OutboundCall> {
+    const [created] = await db.insert(outboundCalls).values(call).returning();
+    return created;
+  }
+
+  async updateCallStatus(id: number, status: string): Promise<void> {
+    await db.update(outboundCalls).set({ status }).where(eq(outboundCalls.id, id));
+  }
+
+  async deleteCallsByRoom(roomId: number): Promise<void> {
+    await db.delete(outboundCalls).where(eq(outboundCalls.roomId, roomId));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
