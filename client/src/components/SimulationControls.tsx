@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Play, Pause, RotateCcw, Zap } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Play, Pause, RotateCcw, Zap, Volume2, VolumeX } from "lucide-react";
 
 interface SimulationControlsProps {
   isRunning: boolean;
@@ -11,6 +13,8 @@ interface SimulationControlsProps {
   entryCount: number;
   callCount: number;
   isGenerating?: boolean;
+  voiceEnabled: boolean;
+  onVoiceToggle: (enabled: boolean) => void;
 }
 
 export function SimulationControls({
@@ -22,6 +26,8 @@ export function SimulationControls({
   entryCount,
   callCount,
   isGenerating = false,
+  voiceEnabled,
+  onVoiceToggle,
 }: SimulationControlsProps) {
   return (
     <Card>
@@ -38,6 +44,26 @@ export function SimulationControls({
             <p className="text-2xl font-bold text-amber-400">{callCount}</p>
             <p className="text-xs text-muted-foreground">Calls Triggered</p>
           </div>
+        </div>
+
+        {/* Voice Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-md bg-secondary/30 border border-border/50">
+          <div className="flex items-center gap-2">
+            {voiceEnabled ? (
+              <Volume2 className="h-4 w-4 text-primary" />
+            ) : (
+              <VolumeX className="h-4 w-4 text-muted-foreground" />
+            )}
+            <Label htmlFor="voice-toggle" className="text-sm font-medium cursor-pointer">
+              Voice Output
+            </Label>
+          </div>
+          <Switch
+            id="voice-toggle"
+            checked={voiceEnabled}
+            onCheckedChange={onVoiceToggle}
+            data-testid="switch-voice-toggle"
+          />
         </div>
 
         <div className="flex flex-col gap-2">

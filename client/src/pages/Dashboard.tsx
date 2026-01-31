@@ -5,6 +5,7 @@ import { ConversationStream } from "@/components/ConversationStream";
 import { AiModelPanel } from "@/components/AiModelPanel";
 import { CallLog } from "@/components/CallLog";
 import { SimulationControls } from "@/components/SimulationControls";
+import { MostInsightfulComment } from "@/components/MostInsightfulComment";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,7 +18,16 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    const saved = localStorage.getItem("voiceEnabled");
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Persist voice preference
+  useEffect(() => {
+    localStorage.setItem("voiceEnabled", JSON.stringify(voiceEnabled));
+  }, [voiceEnabled]);
 
   // Fetch active room
   const { data: room, isLoading: roomLoading } = useQuery<Room>({
@@ -161,8 +171,8 @@ export default function Dashboard() {
         description: "Response added to the conversation",
       });
 
-      // Play TTS for the response
-      if (latestActiveAnalysis.proposedResponse) {
+      // Play TTS for the response (only if voice is enabled)
+      if (voiceEnabled && latestActiveAnalysis.proposedResponse) {
         const audioResponse = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -186,7 +196,7 @@ export default function Dashboard() {
         variant: "destructive",
       });
     }
-  }, [models, analyses, entries, room, toast]);
+  }, [models, analyses, entries, room, toast, voiceEnabled]);
 
   // Keyboard shortcuts for triggering philosophers (1, 2, 3 keys)
   useEffect(() => {
@@ -293,6 +303,7 @@ export default function Dashboard() {
                     isProcessing={isGenerating}
                     roomId={room?.id}
                     latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
+                    voiceEnabled={voiceEnabled}
                   />
                 ))}
               </div>
@@ -310,7 +321,10 @@ export default function Dashboard() {
               entryCount={entries.length}
               callCount={calls.length}
               isGenerating={isGenerating}
+              voiceEnabled={voiceEnabled}
+              onVoiceToggle={setVoiceEnabled}
             />
+            <MostInsightfulComment calls={calls} models={models} />
             <CallLog calls={calls} models={models} />
           </div>
         </div>

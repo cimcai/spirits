@@ -13,9 +13,10 @@ interface AiModelPanelProps {
   isProcessing?: boolean;
   roomId?: number;
   latestEntryId?: number; // Used to calculate staleness/decay
+  voiceEnabled?: boolean;
 }
 
-export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0 }: AiModelPanelProps) {
+export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true }: AiModelPanelProps) {
   const { toast } = useToast();
   
   // Get the latest untriggered analysis with a proposed response
@@ -78,8 +79,8 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
         description: "Response added to the conversation",
       });
       
-      // Play TTS for the response
-      if (latestActiveAnalysis?.proposedResponse) {
+      // Play TTS for the response (only if voice is enabled)
+      if (voiceEnabled && latestActiveAnalysis?.proposedResponse) {
         playTTS(latestActiveAnalysis.proposedResponse);
       }
     },
