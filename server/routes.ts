@@ -372,6 +372,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No audio file provided" });
       }
 
+      console.log(`[transcribe] Received audio: ${req.file.buffer.length} bytes, mimetype: ${req.file.mimetype}`);
       const file = new File([req.file.buffer], "audio.webm", { type: req.file.mimetype });
       const roomId = req.body?.roomId ? parseInt(req.body.roomId) : null;
       const speakerName = req.body?.speaker?.trim() || "Live Speaker";
