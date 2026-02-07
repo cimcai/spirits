@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Sparkles } from "lucide-react";
 import type { OutboundCall, AiModel } from "@shared/schema";
 
 interface MostInsightfulCommentProps {
@@ -22,16 +21,12 @@ export function MostInsightfulComment({ calls, models }: MostInsightfulCommentPr
     return (
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-amber-400" />
-            Most Insightful Today
-          </CardTitle>
+          <CardTitle className="text-lg">Latest Insight</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-4 text-muted-foreground">
-            <Sparkles className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No insights triggered today yet.</p>
-            <p className="text-xs mt-1">Click a philosopher's orb to add their wisdom!</p>
+            <p className="text-xs mt-1">Click a philosopher's orb to add their wisdom.</p>
           </div>
         </CardContent>
       </Card>
@@ -47,18 +42,19 @@ export function MostInsightfulComment({ calls, models }: MostInsightfulCommentPr
   return (
     <Card data-testid="card-most-insightful">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Trophy className="h-5 w-5 text-amber-400" />
-          Most Insightful Today
-        </CardTitle>
+        <CardTitle className="text-lg">Latest Insight</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2">
           {model && (
             <Badge
-              style={{ backgroundColor: model.color + "20", color: model.color, borderColor: model.color + "40" }}
               variant="outline"
+              className="gap-1.5"
             >
+              <span
+                className="w-2 h-2 rounded-full inline-block"
+                style={{ backgroundColor: model.color }}
+              />
               {model.name}
             </Badge>
           )}
@@ -66,10 +62,7 @@ export function MostInsightfulComment({ calls, models }: MostInsightfulCommentPr
             {new Date(mostRecent.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
-        <div 
-          className="p-3 rounded-md border border-border/50"
-          style={{ backgroundColor: model ? model.color + "08" : undefined }}
-        >
+        <div className="p-3 rounded-md border border-border/50 bg-secondary/30">
           <p className="text-sm italic" data-testid="text-insightful-response">
             "{mostRecent.responseContent}"
           </p>

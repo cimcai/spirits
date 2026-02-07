@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Bot, Radio, Sparkles } from "lucide-react";
+import { Radio } from "lucide-react";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
 
 
@@ -26,40 +26,33 @@ export default function Dashboard() {
   });
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Persist voice preference
   useEffect(() => {
     localStorage.setItem("voiceEnabled", JSON.stringify(voiceEnabled));
   }, [voiceEnabled]);
 
-  // Fetch active room
   const { data: room, isLoading: roomLoading } = useQuery<Room>({
     queryKey: ["/api/rooms/active"],
   });
 
-  // Fetch conversation entries
   const { data: entries = [] } = useQuery<ConversationEntry[]>({
     queryKey: ["/api/rooms", room?.id, "entries"],
     enabled: !!room?.id,
   });
 
-  // Fetch AI models
   const { data: models = [] } = useQuery<AiModel[]>({
     queryKey: ["/api/models"],
   });
 
-  // Fetch analyses
   const { data: analyses = [] } = useQuery<ModelAnalysis[]>({
     queryKey: ["/api/rooms", room?.id, "analyses"],
     enabled: !!room?.id,
   });
 
-  // Fetch outbound calls
   const { data: calls = [] } = useQuery<OutboundCall[]>({
     queryKey: ["/api/rooms", room?.id, "calls"],
     enabled: !!room?.id,
   });
 
-  // Generate philosophical dialogue mutation
   const generateDialogueMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", `/api/rooms/${room?.id}/generate-dialogue`, {});
@@ -80,7 +73,6 @@ export default function Dashboard() {
     },
   });
 
-  // Reset room mutation
   const resetRoomMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", `/api/rooms/${room?.id}/reset`, {});
@@ -96,23 +88,20 @@ export default function Dashboard() {
     },
   });
 
-  // Generate a new philosophical dialogue message
   const generateNewDialogue = useCallback(() => {
     if (!room?.id || isGenerating) return;
     setIsGenerating(true);
     generateDialogueMutation.mutate();
   }, [room?.id, isGenerating, generateDialogueMutation]);
 
-  // Start simulation - generate philosophical dialogue every 6 seconds
   const startSimulation = useCallback(() => {
     setIsSimulationRunning(true);
-    generateNewDialogue(); // Generate first message immediately
+    generateNewDialogue();
     intervalRef.current = setInterval(() => {
       generateNewDialogue();
-    }, 6000); // 6 seconds to allow for AI generation time
+    }, 6000);
   }, [generateNewDialogue]);
 
-  // Pause simulation
   const pauseSimulation = useCallback(() => {
     setIsSimulationRunning(false);
     if (intervalRef.current) {
@@ -121,13 +110,11 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Reset room
   const handleReset = useCallback(() => {
     pauseSimulation();
     resetRoomMutation.mutate();
   }, [pauseSimulation, resetRoomMutation]);
 
-  // Cleanup interval on unmount
   useEffect(() => {
     return () => {
       if (intervalRef.current) {
@@ -136,7 +123,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Trigger philosopher and play TTS
   const triggerPhilosopher = useCallback(async (modelIndex: number) => {
     const model = models[modelIndex];
     if (!model || !room?.id) return;
@@ -144,26 +130,22 @@ export default function Dashboard() {
     const modelAnalyses = analyses.filter((a) => a.modelId === model.id);
     const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
     
-    // Get the latest untriggered analysis with a proposed response
     const latestActiveAnalysis = modelAnalyses
       .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
     if (!latestActiveAnalysis) return;
 
-    // Calculate decayed confidence
     const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
     const messagesSinceAnalysis = latestEntryId - analysisEntryId;
     const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
     const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor);
     
-    if (confidence <= 50) return; // Too stale
+    if (confidence <= 50) return;
 
     try {
-      // Trigger the analysis
       await apiRequest("POST", `/api/analyses/${latestActiveAnalysis.id}/trigger`, {});
       
-      // Refresh data
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "analyses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "calls"] });
@@ -173,7 +155,6 @@ export default function Dashboard() {
         description: "Response added to the conversation",
       });
 
-      // Play TTS for the response (only if voice is enabled)
       if (voiceEnabled && latestActiveAnalysis.proposedResponse) {
         const audioResponse = await fetch("/api/tts", {
           method: "POST",
@@ -200,10 +181,8 @@ export default function Dashboard() {
     }
   }, [models, analyses, entries, room, toast, voiceEnabled]);
 
-  // Keyboard shortcuts for triggering philosophers (1, 2, 3 keys)
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       
       if (e.key === "1") triggerPhilosopher(0);
@@ -215,7 +194,6 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [triggerPhilosopher]);
 
-  // Get analyses for a specific model
   const getModelAnalyses = (modelId: number) => {
     return analyses.filter((a) => a.modelId === modelId);
   };
@@ -237,19 +215,13 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b sticky top-0 z-50 bg-background">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-md bg-primary/10">
-              <Bot className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">Philosophical Insight</h1>
-              <p className="text-sm text-muted-foreground">
-                AI philosophers in dialogue
-              </p>
-            </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-app-title">Philosophical Insight</h1>
+            <p className="text-sm text-muted-foreground">
+              AI philosophers in dialogue
+            </p>
           </div>
           <div className="flex items-center gap-3">
             {room && (
@@ -263,36 +235,18 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        {/* Info Banner */}
-        <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 flex items-start gap-3">
-          <Sparkles className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium">Philosophical Insight</p>
-            <p className="text-sm text-muted-foreground">
-              Watch philosophical dialogue unfold in real-time. Three AI philosophers analyze the conversation and offer their unique perspectives.
-              Click their pulsing lights when you want to hear their wisdom.
-            </p>
-          </div>
-        </div>
-
-        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column - Conversation Stream */}
           <div className="lg:col-span-5">
             <ConversationStream entries={entries} isLive={isSimulationRunning} />
           </div>
 
-          {/* Middle Column - AI Models */}
           <div className="lg:col-span-4 space-y-4">
-            <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Bot className="h-4 w-4" />
-              Active AI Models ({models.length})
+            <h2 className="text-sm font-medium text-muted-foreground">
+              Philosophers ({models.length})
             </h2>
             {models.length === 0 ? (
-              <div className="p-8 rounded-lg border border-dashed text-center text-muted-foreground">
-                <Bot className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <div className="p-8 rounded-md border border-dashed text-center text-muted-foreground">
                 <p className="text-sm">No AI models configured</p>
               </div>
             ) : (
@@ -312,7 +266,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Right Column - Controls & Calls */}
           <div className="lg:col-span-3 space-y-6">
             <SimulationControls
               isRunning={isSimulationRunning}

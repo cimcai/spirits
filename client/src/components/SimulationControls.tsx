@@ -32,30 +32,29 @@ export function SimulationControls({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">Simulation Controls</CardTitle>
+        <CardTitle className="text-lg">Controls</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="p-3 rounded-md bg-secondary/50 text-center">
-            <p className="text-2xl font-bold text-primary">{entryCount}</p>
+            <p className="text-2xl font-bold">{entryCount}</p>
             <p className="text-xs text-muted-foreground">Messages</p>
           </div>
           <div className="p-3 rounded-md bg-secondary/50 text-center">
-            <p className="text-2xl font-bold text-amber-400">{callCount}</p>
-            <p className="text-xs text-muted-foreground">Calls Triggered</p>
+            <p className="text-2xl font-bold">{callCount}</p>
+            <p className="text-xs text-muted-foreground">Triggered</p>
           </div>
         </div>
 
-        {/* Voice Toggle */}
         <div className="flex items-center justify-between p-3 rounded-md bg-secondary/30 border border-border/50">
           <div className="flex items-center gap-2">
             {voiceEnabled ? (
-              <Volume2 className="h-4 w-4 text-primary" />
+              <Volume2 className="h-4 w-4" />
             ) : (
               <VolumeX className="h-4 w-4 text-muted-foreground" />
             )}
             <Label htmlFor="voice-toggle" className="text-sm font-medium cursor-pointer">
-              Voice Output
+              Voice
             </Label>
           </div>
           <Switch
@@ -70,12 +69,12 @@ export function SimulationControls({
           {isRunning ? (
             <Button onClick={onPause} variant="secondary" className="w-full" data-testid="button-pause">
               <Pause className="h-4 w-4 mr-2" />
-              Pause Simulation
+              Pause
             </Button>
           ) : (
             <Button onClick={onStart} className="w-full" data-testid="button-start">
               <Play className="h-4 w-4 mr-2" />
-              Start Simulation
+              Start
             </Button>
           )}
           
@@ -97,7 +96,7 @@ export function SimulationControls({
             data-testid="button-reset"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Reset Room
+            Reset
           </Button>
         </div>
       </CardContent>

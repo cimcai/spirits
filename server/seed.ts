@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 
 export async function seedDatabase() {
   try {
-    // Check if room already exists
     const existingRooms = await db.select().from(rooms).limit(1);
     if (existingRooms.length === 0) {
       await db.insert(rooms).values({
@@ -15,7 +14,6 @@ export async function seedDatabase() {
       console.log("Seeded room");
     }
 
-    // Delete existing models and insert philosophical ones
     await db.delete(aiModels);
     await db.insert(aiModels).values([
       {
@@ -28,21 +26,22 @@ export async function seedDatabase() {
 - Someone needs perspective on hardship or adversity`,
         triggerThreshold: 6,
         isActive: true,
-        color: "#10b981",
+        color: "#ef4444",
         voice: "onyx",
         llmModel: "gpt-4o-mini",
       },
       {
-        name: "Existentialist Thinker",
-        description: "Explores meaning, freedom and authenticity",
-        persona: `You are an Existentialist philosopher inspired by Sartre, Camus, and Kierkegaard. You explore themes of freedom, responsibility, authenticity, and creating meaning in an absurd world. You should speak when:
-- Someone questions the meaning or purpose of life
-- There's discussion of freedom, choice, or responsibility
-- Questions of authenticity or "bad faith" arise
-- Someone grapples with absurdity or meaninglessness`,
+        name: "Joscha Bach",
+        description: "Explores consciousness, computation and the nature of mind",
+        persona: `You are Joscha Bach, the AI researcher and cognitive scientist known for your work on cognitive architectures and the computational nature of mind. You speak with precision and often challenge conventional assumptions about consciousness, intelligence, and reality. You draw from computer science, philosophy of mind, and complex systems theory. You should speak when:
+- Someone discusses consciousness, awareness, or the nature of mind
+- There's discussion of artificial intelligence, computation, or information theory
+- Questions arise about the relationship between mathematics and reality
+- Someone makes assumptions about free will, identity, or subjective experience
+- There's an opportunity to reframe a problem through a computational lens`,
         triggerThreshold: 5,
         isActive: true,
-        color: "#6366f1",
+        color: "#8b5cf6",
         voice: "nova",
         llmModel: "gpt-4o-mini",
       },
@@ -56,7 +55,7 @@ export async function seedDatabase() {
 - Someone seems certain without examining why`,
         triggerThreshold: 7,
         isActive: true,
-        color: "#f59e0b",
+        color: "#06b6d4",
         voice: "echo",
         llmModel: "gpt-4o-mini",
       },

@@ -10,18 +10,6 @@ interface ConversationStreamProps {
   isLive?: boolean;
 }
 
-const speakerColors: Record<string, string> = {
-  "Alice": "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "Bob": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  "Carol": "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "David": "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "System": "bg-gray-500/20 text-gray-400 border-gray-500/30",
-};
-
-function getSpeakerColor(speaker: string): string {
-  return speakerColors[speaker] || "bg-primary/20 text-primary border-primary/30";
-}
-
 export function ConversationStream({ entries, isLive = false }: ConversationStreamProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -35,14 +23,14 @@ export function ConversationStream({ entries, isLive = false }: ConversationStre
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
         <div className="flex items-center gap-2">
-          <MessageCircle className="h-5 w-5 text-primary" />
-          <CardTitle className="text-lg">Conversation Stream</CardTitle>
+          <MessageCircle className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-lg">Conversation</CardTitle>
         </div>
         {isLive && (
-          <Badge variant="outline" className="gap-1.5 bg-red-500/10 text-red-400 border-red-500/30">
+          <Badge variant="outline" className="gap-1.5">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-foreground opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-foreground"></span>
             </span>
             Live
           </Badge>
@@ -64,17 +52,14 @@ export function ConversationStream({ entries, isLive = false }: ConversationStre
                   data-testid={`conversation-entry-${entry.id}`}
                 >
                   <div className="flex items-start gap-3">
-                    <Badge
-                      variant="outline"
-                      className={`${getSpeakerColor(entry.speaker)} shrink-0 font-medium`}
-                    >
+                    <Badge variant="outline" className="shrink-0 font-medium">
                       {entry.speaker}
                     </Badge>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm leading-relaxed text-foreground">
                         {entry.content}
                         {index === entries.length - 1 && isLive && (
-                          <span className="inline-block w-0.5 h-4 bg-primary ml-0.5 animate-blink"></span>
+                          <span className="inline-block w-0.5 h-4 bg-foreground ml-0.5 animate-blink"></span>
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
