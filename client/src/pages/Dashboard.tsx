@@ -241,7 +241,7 @@ export default function Dashboard() {
       <header className="border-b sticky top-0 z-50 bg-background">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-app-title">Philosophical Insight</h1>
+            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-app-title">CIMC Spirits</h1>
             <p className="text-sm text-muted-foreground">
               AI philosophers in dialogue
             </p>

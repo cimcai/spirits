@@ -1,4 +1,4 @@
-# Philosophical Insight
+# CIMC Spirits
 
 ## Overview
 
