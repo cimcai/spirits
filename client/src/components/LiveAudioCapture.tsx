@@ -23,7 +23,7 @@ function loadSpeakers(): string[] {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch {}
-  return ["Joscha Bach", "Interviewer"];
+  return ["Joscha Bach", "Questioner"];
 }
 
 function loadActiveSpeaker(speakers: string[]): string {
