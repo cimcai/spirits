@@ -273,6 +273,68 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Compact top-3 orb bar for small screens */}
+      {models.length > 0 && (
+        <div className="sticky top-[65px] z-40 bg-background border-b lg:hidden">
+          <div className="flex items-center justify-center gap-6 px-4 py-3">
+            {top3ModelIds.map((modelId, idx) => {
+              const model = models.find(m => m.id === modelId);
+              if (!model) return null;
+              const conf = getEffectiveConfidence(model);
+              const isActive = conf > 50;
+              const pulseIntensity = conf / 100;
+              const orbSize = 48 + (pulseIntensity * 20);
+              const glowSize = 6 + (pulseIntensity * 18);
+              const animDur = 2 - (pulseIntensity * 1.2);
+              return (
+                <button
+                  key={modelId}
+                  data-testid={`orb-button-${idx + 1}`}
+                  onClick={() => isActive && triggerPhilosopherById(modelId)}
+                  disabled={!isActive}
+                  className="flex flex-col items-center gap-1 disabled:opacity-30"
+                >
+                  <div className="relative flex items-center justify-center">
+                    {isActive && (
+                      <div
+                        className="absolute rounded-full"
+                        style={{
+                          width: orbSize + glowSize,
+                          height: orbSize + glowSize,
+                          backgroundColor: model.color,
+                          opacity: 0.3,
+                          animation: `pulse ${animDur}s ease-in-out infinite`,
+                        }}
+                      />
+                    )}
+                    <div
+                      className="rounded-full relative z-10 flex items-center justify-center"
+                      style={{
+                        width: orbSize,
+                        height: orbSize,
+                        backgroundColor: isActive ? model.color : 'transparent',
+                        border: isActive ? 'none' : '2px solid hsl(var(--border))',
+                        transition: 'all 0.3s ease',
+                      }}
+                    >
+                      <span className="text-xs font-bold" style={{ color: isActive ? '#000' : 'hsl(var(--muted-foreground))' }}>
+                        {idx + 1}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                    {model.name}
+                  </span>
+                  {isActive && (
+                    <span className="text-[10px] font-mono text-muted-foreground">{conf}%</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-5">
