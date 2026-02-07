@@ -81,10 +81,15 @@ export async function chatCompletion(
     const systemMessage = messages.find((m) => m.role === "system");
     const nonSystemMessages = messages.filter((m) => m.role !== "system");
 
+    let systemContent = systemMessage?.content || "";
+    if (jsonMode) {
+      systemContent += "\n\nIMPORTANT: You must respond with ONLY valid JSON. No extra text, no markdown formatting, no code blocks. Output raw JSON only.";
+    }
+
     const response = await anthropic.messages.create({
       model: modelId,
       max_tokens: 2048,
-      system: systemMessage?.content || "",
+      system: systemContent,
       messages: nonSystemMessages.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
@@ -97,8 +102,7 @@ export async function chatCompletion(
 
   if (provider === "openrouter") {
     if (!openrouter) {
-      console.warn("OpenRouter not configured, falling back to OpenAI");
-      return chatCompletion("gpt-4o-mini", messages, jsonMode);
+      throw new Error(`OpenRouter is not configured. Cannot use model "${modelId}". Please set up OpenRouter integration or choose an OpenAI/Claude model.`);
     }
 
     const params: any = {
