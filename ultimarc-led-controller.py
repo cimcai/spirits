@@ -304,6 +304,90 @@ def run_led_test(controller):
     print("If any buttons lit up, note the interface number and which")
     print("method showed 'OK' for that interface. Report back!\n")
 
+
+def run_remap(controller):
+    """Interactive remap mode. Lights up each interface so you can assign
+    them to philosopher buttons 1, 2, 3."""
+    print("\n--- INTERACTIVE REMAP ---")
+    print("This will light up each detected interface one at a time.")
+    print("You tell it which philosopher button (1, 2, or 3) that")
+    print("physical button should control. Press Enter to skip.\n")
+
+    all_devices = hid.enumerate(ULTIMARC_VENDOR_ID, USBBUTTON_PRODUCT_ID)
+    seen_paths = set()
+    unique_devices = []
+    for dev in all_devices:
+        path = dev.get("path", b"")
+        if path not in seen_paths:
+            seen_paths.add(path)
+            unique_devices.append(dev)
+
+    mapping = {}
+    total = len(unique_devices)
+
+    for i, dev_info in enumerate(unique_devices):
+        btn = USBButtonDevice(dev_info["path"], i + 1)
+        if not btn.connect():
+            continue
+
+        print("Lighting interface %d of %d (WHITE)..." % (i, total - 1))
+        btn.set_color(255, 255, 255)
+        time.sleep(0.3)
+
+        answer = input("  Which philosopher button is this? (1/2/3, or Enter to skip): ").strip()
+
+        btn.set_color(0, 0, 0)
+        btn.close()
+
+        if answer in ("1", "2", "3"):
+            slot = int(answer)
+            mapping[slot] = i
+            print("  -> Mapped philosopher button %d to interface %d\n" % (slot, i))
+        else:
+            print("  -> Skipped\n")
+
+    if not mapping:
+        print("No buttons mapped. Keeping current config.")
+        return
+
+    new_interfaces = [
+        mapping.get(1, BUTTON_INTERFACES[0] if len(BUTTON_INTERFACES) > 0 else 0),
+        mapping.get(2, BUTTON_INTERFACES[1] if len(BUTTON_INTERFACES) > 1 else 4),
+        mapping.get(3, BUTTON_INTERFACES[2] if len(BUTTON_INTERFACES) > 2 else 8),
+    ]
+
+    print("=" * 40)
+    print("New mapping:")
+    print("  Philosopher 1 -> interface %d" % new_interfaces[0])
+    print("  Philosopher 2 -> interface %d" % new_interfaces[1])
+    print("  Philosopher 3 -> interface %d" % new_interfaces[2])
+    print()
+
+    confirm = input("Save this mapping to the script? (y/n): ").strip().lower()
+    if confirm == "y":
+        try:
+            with open(__file__, "r") as f:
+                script = f.read()
+            import re
+            script = re.sub(
+                r"^BUTTON_INTERFACES\s*=\s*\[.*?\]",
+                "BUTTON_INTERFACES = [%d, %d, %d]" % tuple(new_interfaces),
+                script,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            with open(__file__, "w") as f:
+                f.write(script)
+            print("Saved! BUTTON_INTERFACES = %s" % new_interfaces)
+            print("Restart the script to use the new mapping.\n")
+        except Exception as e:
+            print("Could not save automatically: %s" % e)
+            print("Manually set this line in the script:")
+            print("  BUTTON_INTERFACES = [%d, %d, %d]" % tuple(new_interfaces))
+    else:
+        print("Not saved. To use this mapping, edit the script:")
+        print("  BUTTON_INTERFACES = [%d, %d, %d]\n" % tuple(new_interfaces))
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -348,15 +432,34 @@ def run_normal_test(controller):
 
 def run():
     is_bruteforce = "--test" in sys.argv
+    is_remap = "--remap" in sys.argv
 
     print("=" * 50)
     print("  CIMC Spirits - USBButton LED Controller")
     print("=" * 50)
     print("  App URL: %s" % APP_URL)
-    print("  Poll interval: %ss" % POLL_INTERVAL)
-    if not is_bruteforce:
+    if is_remap:
+        print("  Mode: INTERACTIVE REMAP")
+    elif is_bruteforce:
+        print("  Mode: BRUTEFORCE TEST")
+    else:
+        print("  Poll interval: %ss" % POLL_INTERVAL)
         print("  LED interfaces: %s" % BUTTON_INTERFACES)
     print()
+    print("  Usage:")
+    print("    python %s [url]          Normal mode (poll & pulse)" % sys.argv[0])
+    print("    python %s --test         Bruteforce test all interfaces" % sys.argv[0])
+    print("    python %s --remap        Interactive button remap" % sys.argv[0])
+    print()
+
+    if is_remap:
+        controller = ButtonController(bruteforce=True)
+        if controller.connect():
+            run_remap(controller)
+            controller.close()
+        else:
+            print("No USBButton devices found.")
+        return
 
     print("Scanning for Ultimarc USBButton devices...")
     controller = ButtonController(bruteforce=is_bruteforce)
@@ -367,8 +470,8 @@ def run():
     if controller.is_real:
         if is_bruteforce:
             run_led_test(controller)
-            print("Done. Update BUTTON_INTERFACES in the script with the")
-            print("interface numbers that lit up, then run without --test.")
+            print("Done. Run with --remap to interactively assign buttons,")
+            print("or manually edit BUTTON_INTERFACES in the script.")
             controller.close()
             return
         else:
@@ -428,6 +531,6 @@ def run():
 
 if __name__ == "__main__":
     for arg in sys.argv[1:]:
-        if arg != "--test":
+        if arg not in ("--test", "--remap"):
             APP_URL = arg
     run()
