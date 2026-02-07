@@ -1,13 +1,14 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs,
+  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs, responseRatings,
   type Room, type InsertRoom,
   type ConversationEntry, type InsertConversationEntry,
   type AiModel, type InsertAiModel,
   type OutboundCall, type InsertOutboundCall,
   type ModelAnalysis, type InsertModelAnalysis,
   type LatencyLog, type InsertLatencyLog,
+  type ResponseRating, type InsertResponseRating,
   type User, type InsertUser, users,
 } from "@shared/schema";
 
@@ -48,6 +49,11 @@ export interface IStorage {
   createOutboundCall(call: InsertOutboundCall): Promise<OutboundCall>;
   updateCallStatus(id: number, status: string): Promise<void>;
   deleteCallsByRoom(roomId: number): Promise<void>;
+
+  // Response Ratings
+  createResponseRating(rating: InsertResponseRating): Promise<ResponseRating>;
+  getRatingsByModel(modelId: number): Promise<ResponseRating[]>;
+  getRatingByAnalysis(analysisId: number): Promise<ResponseRating | undefined>;
 
   // Latency Logs
   createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog>;
@@ -185,6 +191,24 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCallsByRoom(roomId: number): Promise<void> {
     await db.delete(outboundCalls).where(eq(outboundCalls.roomId, roomId));
+  }
+
+  // Response Ratings
+  async createResponseRating(rating: InsertResponseRating): Promise<ResponseRating> {
+    const [created] = await db.insert(responseRatings).values(rating).returning();
+    return created;
+  }
+
+  async getRatingsByModel(modelId: number): Promise<ResponseRating[]> {
+    return db.select().from(responseRatings)
+      .where(eq(responseRatings.modelId, modelId))
+      .orderBy(desc(responseRatings.createdAt));
+  }
+
+  async getRatingByAnalysis(analysisId: number): Promise<ResponseRating | undefined> {
+    const [rating] = await db.select().from(responseRatings)
+      .where(eq(responseRatings.analysisId, analysisId));
+    return rating;
   }
 
   // Latency Logs

@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
 import type { AiModel, ModelAnalysis } from "@shared/schema";
 
 interface AiModelPanelProps {
@@ -12,13 +15,19 @@ interface AiModelPanelProps {
   roomId?: number;
   latestEntryId?: number;
   voiceEnabled?: boolean;
+  buttonIndex?: number;
 }
 
-export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true }: AiModelPanelProps) {
+export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true, buttonIndex }: AiModelPanelProps) {
   const { toast } = useToast();
+  const [ratedAnalysisIds, setRatedAnalysisIds] = useState<Set<number>>(new Set());
   
   const latestActiveAnalysis = analyses
     .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+  const latestTriggeredAnalysis = analyses
+    .filter(a => a.isTriggered && a.proposedResponse)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
   const analysisEntryId = latestActiveAnalysis?.conversationEntryId || 0;
@@ -26,7 +35,8 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   
   const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
   const rawConfidence = latestActiveAnalysis?.confidence || 0;
-  const confidence = Math.round(rawConfidence * decayFactor);
+  const multiplier = model.confidenceMultiplier ?? 1;
+  const confidence = Math.round(rawConfidence * decayFactor * multiplier);
   
   const hasResponse = !!latestActiveAnalysis?.proposedResponse && confidence > 50;
 
@@ -77,9 +87,38 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
     },
   });
 
+  const rateMutation = useMutation({
+    mutationFn: async ({ analysisId, rating }: { analysisId: number; rating: number }) => {
+      return apiRequest("POST", `/api/analyses/${analysisId}/rate`, { rating });
+    },
+    onSuccess: (_, variables) => {
+      setRatedAnalysisIds(prev => new Set(prev).add(variables.analysisId));
+      queryClient.invalidateQueries({ queryKey: ["/api/models"] });
+      toast({
+        title: variables.rating === 1 ? "Rated positively" : "Rated negatively",
+        description: variables.rating === -1 
+          ? `${model.name}'s confidence has been reduced` 
+          : `${model.name}'s confidence has been boosted`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to rate response",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleTrigger = () => {
     if (latestActiveAnalysis) {
       triggerMutation.mutate(latestActiveAnalysis.id);
+    }
+  };
+
+  const handleRate = (rating: number) => {
+    if (latestTriggeredAnalysis) {
+      rateMutation.mutate({ analysisId: latestTriggeredAnalysis.id, rating });
     }
   };
 
@@ -87,6 +126,8 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   const glowSize = 8 + (pulseIntensity * 24);
   const animationDuration = 2 - (pulseIntensity * 1.2);
   const orbSize = 48 + (pulseIntensity * 32);
+
+  const showRating = latestTriggeredAnalysis && !ratedAnalysisIds.has(latestTriggeredAnalysis.id);
 
   return (
     <Card 
@@ -100,7 +141,19 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
             style={{ backgroundColor: hasResponse ? model.color : undefined, opacity: hasResponse ? 1 : 0.3, border: hasResponse ? 'none' : '1px solid hsl(var(--border))' }}
           />
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base">{model.name}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">{model.name}</CardTitle>
+              {buttonIndex && (
+                <Badge variant="outline" className="text-xs font-mono" data-testid={`badge-button-${model.id}`}>
+                  {buttonIndex}
+                </Badge>
+              )}
+              {multiplier !== 1 && (
+                <Badge variant="secondary" className="text-xs" data-testid={`badge-multiplier-${model.id}`}>
+                  {Math.round(multiplier * 100)}%
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground truncate">{model.description}</p>
           </div>
         </div>
@@ -189,6 +242,37 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
             >
               {triggerMutation.isPending ? "Speaking..." : "Click to Speak"}
             </Button>
+          </div>
+        )}
+
+        {showRating && (
+          <div className="mt-3 p-3 rounded-md bg-secondary/30 border border-border/50" data-testid={`rating-panel-${model.id}`}>
+            <p className="text-xs text-muted-foreground mb-2">Rate this response:</p>
+            <p className="text-xs line-clamp-2 mb-2 text-muted-foreground/80">{latestTriggeredAnalysis.proposedResponse}</p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 gap-1"
+                onClick={() => handleRate(1)}
+                disabled={rateMutation.isPending}
+                data-testid={`button-rate-up-${model.id}`}
+              >
+                <ThumbsUp className="w-3 h-3" />
+                Good
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 gap-1"
+                onClick={() => handleRate(-1)}
+                disabled={rateMutation.isPending}
+                data-testid={`button-rate-down-${model.id}`}
+              >
+                <ThumbsDown className="w-3 h-3" />
+                Poor
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

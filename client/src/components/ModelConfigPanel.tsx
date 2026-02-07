@@ -193,6 +193,116 @@ function ModelEditor({ model }: { model: AiModel }) {
   );
 }
 
+function AddPhilosopherForm() {
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [persona, setPersona] = useState("");
+  const [color, setColor] = useState("#6366f1");
+  const [voice, setVoice] = useState("alloy");
+  const [llmModel, setLlmModel] = useState("gpt-4o-mini");
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/models", {
+        name, description, persona, color, voice, llmModel,
+        triggerThreshold: 5, isActive: true,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/models"] });
+      toast({ title: "Created", description: `${name} added successfully` });
+      setName(""); setDescription(""); setPersona(""); setColor("#6366f1");
+      setShowForm(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create philosopher", variant: "destructive" });
+    },
+  });
+
+  if (!showForm) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => setShowForm(true)}
+        data-testid="button-add-philosopher"
+      >
+        Add Philosopher
+      </Button>
+    );
+  }
+
+  return (
+    <div className="border border-border/50 rounded-md p-3 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" data-testid="input-new-name" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Color</Label>
+          <div className="flex gap-2">
+            <Input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="w-10 p-1 cursor-pointer" data-testid="input-new-color" />
+            <Input value={color} onChange={(e) => setColor(e.target.value)} className="text-sm flex-1" />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Description</Label>
+        <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" data-testid="input-new-description" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Voice</Label>
+          <Select value={voice} onValueChange={setVoice}>
+            <SelectTrigger className="text-sm" data-testid="select-new-voice">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AVAILABLE_VOICES.map((v) => (
+                <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">AI Model</Label>
+          <Select value={llmModel} onValueChange={setLlmModel}>
+            <SelectTrigger className="text-sm" data-testid="select-new-model">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_GROUPS.map((group) => (
+                <SelectGroup key={group}>
+                  <SelectLabel>{group}</SelectLabel>
+                  {AVAILABLE_MODELS.filter((m) => m.group === group).map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Persona / Instructions</Label>
+        <Textarea value={persona} onChange={(e) => setPersona(e.target.value)} className="text-sm min-h-[80px]" data-testid="textarea-new-persona" />
+      </div>
+      <div className="flex gap-2">
+        <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name || !persona} size="sm" className="flex-1" data-testid="button-create-philosopher">
+          {createMutation.isPending ? "Creating..." : "Create"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowForm(false)} data-testid="button-cancel-create">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ModelConfigPanel({ models }: ModelConfigPanelProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -216,6 +326,7 @@ export function ModelConfigPanel({ models }: ModelConfigPanelProps) {
           {models.map((model) => (
             <ModelEditor key={model.id} model={model} />
           ))}
+          <AddPhilosopherForm />
         </CardContent>
       )}
     </Card>

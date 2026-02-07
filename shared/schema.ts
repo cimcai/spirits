@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, timestamp, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -62,6 +62,7 @@ export const aiModels = pgTable("ai_models", {
   color: text("color").default("#6366f1").notNull(),
   voice: text("voice").default("alloy").notNull(),
   llmModel: text("llm_model").default("gpt-4o-mini").notNull(),
+  confidenceMultiplier: real("confidence_multiplier").default(1.0).notNull(),
 });
 
 export const insertAiModelSchema = createInsertSchema(aiModels).omit({
@@ -111,6 +112,23 @@ export const insertModelAnalysisSchema = createInsertSchema(modelAnalyses).omit(
 
 export type ModelAnalysis = typeof modelAnalyses.$inferSelect;
 export type InsertModelAnalysis = z.infer<typeof insertModelAnalysisSchema>;
+
+// Response ratings - user feedback on philosopher responses
+export const responseRatings = pgTable("response_ratings", {
+  id: serial("id").primaryKey(),
+  analysisId: integer("analysis_id").notNull().references(() => modelAnalyses.id, { onDelete: "cascade" }),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(), // -1 (bad), 0 (neutral), 1 (good)
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertResponseRatingSchema = createInsertSchema(responseRatings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ResponseRating = typeof responseRatings.$inferSelect;
+export type InsertResponseRating = z.infer<typeof insertResponseRatingSchema>;
 
 // Latency logs - tracks timing for every AI service call
 export const latencyLogs = pgTable("latency_logs", {

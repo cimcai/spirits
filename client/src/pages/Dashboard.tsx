@@ -125,14 +125,35 @@ export default function Dashboard() {
     };
   }, []);
 
-  const triggerPhilosopher = useCallback(async (modelIndex: number) => {
-    const model = models[modelIndex];
+  // Compute effective confidence for each model to determine top-3 button mapping
+  const getEffectiveConfidence = useCallback((model: AiModel) => {
+    const modelAn = analyses.filter((a) => a.modelId === model.id);
+    const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
+    const latestActiveAnalysis = modelAn
+      .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    if (!latestActiveAnalysis) return 0;
+    const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
+    const messagesSinceAnalysis = latestEntryId - analysisEntryId;
+    const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
+    return Math.round(latestActiveAnalysis.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
+  }, [analyses, entries]);
+
+  // Top 3 models by effective confidence get button mapping
+  const top3ModelIds = [...models]
+    .map(m => ({ id: m.id, confidence: getEffectiveConfidence(m) }))
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 3)
+    .map(m => m.id);
+
+  const triggerPhilosopherById = useCallback(async (modelId: number) => {
+    const model = models.find(m => m.id === modelId);
     if (!model || !room?.id) return;
 
-    const modelAnalyses = analyses.filter((a) => a.modelId === model.id);
+    const modelAn = analyses.filter((a) => a.modelId === model.id);
     const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
     
-    const latestActiveAnalysis = modelAnalyses
+    const latestActiveAnalysis = modelAn
       .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
@@ -141,7 +162,7 @@ export default function Dashboard() {
     const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
     const messagesSinceAnalysis = latestEntryId - analysisEntryId;
     const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
-    const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor);
+    const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
     
     if (confidence <= 50) return;
 
@@ -187,14 +208,14 @@ export default function Dashboard() {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       
-      if (e.key === "1") triggerPhilosopher(0);
-      else if (e.key === "2") triggerPhilosopher(1);
-      else if (e.key === "3") triggerPhilosopher(2);
+      if (e.key === "1" && top3ModelIds[0]) triggerPhilosopherById(top3ModelIds[0]);
+      else if (e.key === "2" && top3ModelIds[1]) triggerPhilosopherById(top3ModelIds[1]);
+      else if (e.key === "3" && top3ModelIds[2]) triggerPhilosopherById(top3ModelIds[2]);
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [triggerPhilosopher]);
+  }, [triggerPhilosopherById, top3ModelIds]);
 
   const getModelAnalyses = (modelId: number) => {
     return analyses.filter((a) => a.modelId === modelId);
@@ -258,17 +279,21 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {models.map((model) => (
-                  <AiModelPanel
-                    key={model.id}
-                    model={model}
-                    analyses={getModelAnalyses(model.id)}
-                    isProcessing={isGenerating}
-                    roomId={room?.id}
-                    latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
-                    voiceEnabled={voiceEnabled}
-                  />
-                ))}
+                {models.map((model) => {
+                  const btnIdx = top3ModelIds.indexOf(model.id);
+                  return (
+                    <AiModelPanel
+                      key={model.id}
+                      model={model}
+                      analyses={getModelAnalyses(model.id)}
+                      isProcessing={isGenerating}
+                      roomId={room?.id}
+                      latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
+                      voiceEnabled={voiceEnabled}
+                      buttonIndex={btnIdx >= 0 ? btnIdx + 1 : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </div>

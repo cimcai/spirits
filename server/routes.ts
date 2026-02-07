@@ -236,6 +236,97 @@ export async function registerRoutes(
     }
   });
 
+  // Create a new AI model
+  app.post("/api/models", async (req, res) => {
+    try {
+      const parsed = insertAiModelSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+      }
+      const model = await storage.createAiModel(parsed.data);
+      res.status(201).json(model);
+    } catch (error) {
+      console.error("Error creating model:", error);
+      res.status(500).json({ error: "Failed to create model" });
+    }
+  });
+
+  // Delete an AI model
+  app.delete("/api/models/:modelId", async (req, res) => {
+    try {
+      const modelId = parseInt(req.params.modelId);
+      const model = await storage.getAiModel(modelId);
+      if (!model) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+      await storage.updateAiModel(modelId, { isActive: false });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting model:", error);
+      res.status(500).json({ error: "Failed to delete model" });
+    }
+  });
+
+  // Rate a philosopher's response
+  app.post("/api/analyses/:analysisId/rate", async (req, res) => {
+    try {
+      const analysisId = parseInt(req.params.analysisId);
+      const { rating } = req.body; // -1, 0, or 1
+
+      if (rating === undefined || ![-1, 0, 1].includes(rating)) {
+        return res.status(400).json({ error: "Rating must be -1, 0, or 1" });
+      }
+
+      // Check if already rated
+      const existing = await storage.getRatingByAnalysis(analysisId);
+      if (existing) {
+        return res.status(400).json({ error: "Already rated" });
+      }
+
+      // Find the analysis to get the model
+      const allAnalyses = await storage.getAnalysesByRoom(1);
+      const analysis = allAnalyses.find(a => a.id === analysisId);
+      if (!analysis) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+
+      const ratingRecord = await storage.createResponseRating({
+        analysisId,
+        modelId: analysis.modelId,
+        rating,
+      });
+
+      // Adjust the model's confidence multiplier based on rating
+      const model = await storage.getAiModel(analysis.modelId);
+      if (model) {
+        let newMultiplier = model.confidenceMultiplier;
+        if (rating === -1) {
+          newMultiplier = Math.max(0.1, newMultiplier * 0.8); // 20% penalty
+        } else if (rating === 1) {
+          newMultiplier = Math.min(1.5, newMultiplier * 1.05); // 5% boost, capped at 1.5
+        }
+        await storage.updateAiModel(analysis.modelId, { confidenceMultiplier: newMultiplier });
+      }
+
+      res.status(201).json(ratingRecord);
+    } catch (error) {
+      console.error("Error rating response:", error);
+      res.status(500).json({ error: "Failed to rate response" });
+    }
+  });
+
+  // Get ratings for a model
+  app.get("/api/models/:modelId/ratings", async (req, res) => {
+    try {
+      const modelId = parseInt(req.params.modelId);
+      const ratings = await storage.getRatingsByModel(modelId);
+      res.json(ratings);
+    } catch (error) {
+      console.error("Error fetching ratings:", error);
+      res.status(500).json({ error: "Failed to fetch ratings" });
+    }
+  });
+
   // Audio transcription endpoint
   app.post("/api/audio/transcribe", upload.single("audio"), async (req, res) => {
     try {
@@ -321,22 +412,28 @@ export async function registerRoutes(
     try {
       const models = await storage.getAllAiModels();
       const roomId = req.query.roomId ? parseInt(req.query.roomId as string) : 1;
-      const statuses = await Promise.all(
-        models.map(async (model, index) => {
+      const allStatuses = await Promise.all(
+        models.map(async (model) => {
           const latest = await storage.getLatestAnalysisByModel(roomId, model.id);
-          const confidence = latest?.confidence ?? 0;
-          const brightness = Math.round((confidence / 100) * 255);
+          const rawConfidence = latest?.confidence ?? 0;
+          const effectiveConfidence = Math.round(rawConfidence * (model.confidenceMultiplier ?? 1));
+          const brightness = Math.round((effectiveConfidence / 100) * 255);
           return {
-            index: index + 1,
             modelId: model.id,
             name: model.name,
             color: model.color,
-            confidence,
+            confidence: effectiveConfidence,
             brightness,
             shouldSpeak: latest?.shouldSpeak ?? false,
           };
         })
       );
+      // Sort by confidence descending, top 3 get button indices
+      const sorted = [...allStatuses].sort((a, b) => b.confidence - a.confidence);
+      const statuses = sorted.map((s, i) => ({
+        ...s,
+        index: i < 3 ? i + 1 : null,
+      }));
       res.json(statuses);
     } catch (error) {
       console.error("Error fetching LED status:", error);
