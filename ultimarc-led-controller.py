@@ -31,9 +31,16 @@ import sys
 import time
 import math
 import json
-import select
-import tty
-import termios
+import os
+
+IS_WINDOWS = os.name == "nt"
+
+if IS_WINDOWS:
+    import msvcrt
+else:
+    import select
+    import tty
+    import termios
 
 try:
     import hid
@@ -494,19 +501,40 @@ def run():
     print("\nStarting LED control loop...")
     print("  Keys:  r = remap   t = test   s = swap two buttons   q = quit\n")
 
-    old_settings = termios.tcgetattr(sys.stdin)
+    old_settings = None
+    if not IS_WINDOWS:
+        old_settings = termios.tcgetattr(sys.stdin)
     try:
-        tty.setcbreak(sys.stdin.fileno())
+        if not IS_WINDOWS:
+            tty.setcbreak(sys.stdin.fileno())
+
+        def _key_available():
+            if IS_WINDOWS:
+                return msvcrt.kbhit()
+            return select.select([sys.stdin], [], [], 0)[0]
+
+        def _read_key():
+            if IS_WINDOWS:
+                return msvcrt.getch().decode("utf-8", errors="ignore").lower()
+            return sys.stdin.read(1).lower()
+
+        def _enter_line_mode():
+            if not IS_WINDOWS:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+        def _enter_cbreak_mode():
+            if not IS_WINDOWS:
+                tty.setcbreak(sys.stdin.fileno())
 
         while True:
-            if select.select([sys.stdin], [], [], 0)[0]:
-                key = sys.stdin.read(1).lower()
+            if _key_available():
+                key = _read_key()
 
                 if key == "q":
                     break
 
                 elif key == "r":
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    _enter_line_mode()
                     controller.set_all_color(0, 0, 0)
                     controller.close()
 
@@ -518,17 +546,17 @@ def run():
                         controller.connect()
                     display_lines = 0
                     print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
-                    tty.setcbreak(sys.stdin.fileno())
+                    _enter_cbreak_mode()
 
                 elif key == "t":
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    _enter_line_mode()
                     run_normal_test(controller)
                     display_lines = 0
                     print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
-                    tty.setcbreak(sys.stdin.fileno())
+                    _enter_cbreak_mode()
 
                 elif key == "s":
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    _enter_line_mode()
                     print("\n--- SWAP TWO BUTTONS ---")
                     print("  Current mapping: %s" % BUTTON_INTERFACES)
                     a = input("  Swap button (1/2/3): ").strip()
@@ -546,7 +574,7 @@ def run():
                     else:
                         print("  Invalid input, no change.")
                     print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
-                    tty.setcbreak(sys.stdin.fileno())
+                    _enter_cbreak_mode()
 
             status = fetch_led_status(APP_URL)
             if status:
@@ -592,7 +620,8 @@ def run():
     except KeyboardInterrupt:
         pass
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        if not IS_WINDOWS and old_settings:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
         print("\n\nShutting down...")
         controller.close()
         print("LEDs off. Goodbye!")
