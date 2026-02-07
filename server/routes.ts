@@ -56,7 +56,7 @@ export async function registerRoutes(
         inbound: {
           getConversation: { method: "GET", path: "/api/inbound/conversation", description: "Fetch recent conversation entries", params: { roomId: "number (default 1)", limit: "number (default 20, max 100)" } },
           getPhilosophers: { method: "GET", path: "/api/inbound/philosophers", description: "Get philosopher statuses and confidence levels", params: { roomId: "number (default 1)" } },
-          respond: { method: "POST", path: "/api/inbound/respond", description: "Submit a response to the conversation", body: { speaker: "string (required)", content: "string (required)", roomId: "number (default 1)" } },
+          respond: { method: "POST", path: "/api/inbound/respond", description: "Submit a response (queued for admin moderation before entering conversation)", body: { speaker: "string (required)", content: "string (required)", roomId: "number (default 1)", source: "string (default 'api')" } },
         },
         conversation: {
           addEntry: { method: "POST", path: "/api/rooms/:roomId/entries", description: "Add entry to specific room", body: { speaker: "string", content: "string" } },
@@ -64,6 +64,11 @@ export async function registerRoutes(
           getAnalyses: { method: "GET", path: "/api/rooms/:roomId/analyses", description: "Get all philosopher analyses for a room" },
           trigger: { method: "POST", path: "/api/analyses/:analysisId/trigger", description: "Trigger a philosopher's proposed response" },
           rate: { method: "POST", path: "/api/analyses/:analysisId/rate", description: "Rate a response (+1 or -1)", body: { rating: "number (-1 or 1)" } },
+        },
+        admin: {
+          getQueue: { method: "GET", path: "/api/admin/queue", description: "List moderation queue (filter by ?status=pending|approved|rejected)" },
+          approve: { method: "POST", path: "/api/admin/queue/:id/approve", description: "Approve submission into conversation", body: { reviewedBy: "string", reviewNote: "string", editedSpeaker: "string", editedContent: "string" } },
+          reject: { method: "POST", path: "/api/admin/queue/:id/reject", description: "Reject a submission", body: { reviewedBy: "string", reviewNote: "string" } },
         },
         spirits: {
           list: { method: "GET", path: "/api/models", description: "List all AI spirits/philosophers" },
@@ -74,6 +79,7 @@ export async function registerRoutes(
         moltbook: {
           post: { method: "POST", path: "/api/moltbook/post", description: "Post to Moltbook (requires MOLTBOOK_API_KEY)", body: { title: "string", content: "string", submolt: "string (default 'general')" } },
           shareInsight: { method: "POST", path: "/api/moltbook/share-insight", description: "Share philosopher insight to Moltbook", body: { analysisId: "number" } },
+          inviteAgents: { method: "POST", path: "/api/moltbook/invite-agents", description: "Summarize conversation and post to Moltbook to invite external agents", body: { roomId: "number (default 1)", title: "string", submolt: "string (default 'general')" } },
         },
       },
     });
@@ -770,23 +776,87 @@ export async function registerRoutes(
     }
   });
 
-  // External bot submits a philosophical response into the conversation
+  // External bot submits a response - goes to moderation queue
   app.post("/api/inbound/respond", async (req, res) => {
     try {
-      const { speaker, content, roomId: reqRoomId } = req.body;
+      const { speaker, content, roomId: reqRoomId, source } = req.body;
       if (!speaker || !content) {
         return res.status(400).json({ error: "speaker and content are required" });
       }
       const roomId = reqRoomId ? parseInt(reqRoomId) : 1;
-      const entry = await storage.createConversationEntry({
+      const submission = await storage.createPendingSubmission({
         roomId,
         speaker: String(speaker),
         content: String(content),
+        source: String(source || "api"),
       });
 
-      // Trigger analysis from all philosophers on this new input
+      res.status(201).json({
+        submission: {
+          id: submission.id,
+          speaker: submission.speaker,
+          content: submission.content,
+          status: submission.status,
+          createdAt: submission.createdAt,
+        },
+        message: `Submission from ${speaker} queued for admin review.`,
+      });
+    } catch (error) {
+      console.error("Error processing inbound response:", error);
+      res.status(500).json({ error: "Failed to process response" });
+    }
+  });
+
+  // ============================================================
+  // ADMIN MODERATION QUEUE
+  // ============================================================
+
+  // Get all pending submissions (optionally filter by status)
+  app.get("/api/admin/queue", async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const submissions = await storage.getPendingSubmissions(status);
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching queue:", error);
+      res.status(500).json({ error: "Failed to fetch queue" });
+    }
+  });
+
+  // Approve a submission - adds it to the conversation and triggers analysis
+  app.post("/api/admin/queue/:id/approve", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reviewedBy, reviewNote, editedContent, editedSpeaker } = req.body;
+      const submission = await storage.getPendingSubmission(id);
+      if (!submission) {
+        return res.status(404).json({ error: "Submission not found" });
+      }
+      if (submission.status !== "pending") {
+        return res.status(400).json({ error: `Submission already ${submission.status}` });
+      }
+
+      const speaker = editedSpeaker || submission.speaker;
+      const content = editedContent || submission.content;
+
+      // Add to conversation
+      const entry = await storage.createConversationEntry({
+        roomId: submission.roomId,
+        speaker,
+        content,
+      });
+
+      // Mark as approved
+      await storage.updatePendingSubmission(id, {
+        status: "approved",
+        reviewedBy: reviewedBy || "admin",
+        reviewNote: reviewNote || null,
+        reviewedAt: new Date(),
+      });
+
+      // Trigger philosopher analysis
       const models = await storage.getAllAiModels();
-      const entries = await storage.getEntriesByRoom(roomId);
+      const entries = await storage.getEntriesByRoom(submission.roomId);
       const conversationContext = entries
         .slice(-10)
         .map((e) => `${e.speaker}: ${e.content}`)
@@ -798,10 +868,10 @@ export async function registerRoutes(
           const result = await logLatency(
             "analysis", llmModel, getProvider(llmModel),
             () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
-            { roomId, modelId: model.id, metadata: { philosopherName: model.name } }
+            { roomId: submission.roomId, modelId: model.id, metadata: { philosopherName: model.name } }
           );
           await storage.createModelAnalysis({
-            roomId,
+            roomId: submission.roomId,
             modelId: model.id,
             conversationEntryId: entry.id,
             confidence: result.confidence || 0,
@@ -814,18 +884,109 @@ export async function registerRoutes(
         }
       }
 
-      res.status(201).json({
-        entry: {
-          id: entry.id,
-          speaker: entry.speaker,
-          content: entry.content,
-          timestamp: entry.timestamp,
-        },
-        message: `Response from ${speaker} added to conversation. ${models.length} philosophers are now analyzing.`,
+      res.json({
+        entry,
+        message: `Approved and added to conversation. ${models.length} philosophers analyzing.`,
       });
     } catch (error) {
-      console.error("Error processing inbound response:", error);
-      res.status(500).json({ error: "Failed to process response" });
+      console.error("Error approving submission:", error);
+      res.status(500).json({ error: "Failed to approve submission" });
+    }
+  });
+
+  // Reject a submission
+  app.post("/api/admin/queue/:id/reject", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reviewedBy, reviewNote } = req.body;
+      const submission = await storage.getPendingSubmission(id);
+      if (!submission) {
+        return res.status(404).json({ error: "Submission not found" });
+      }
+      if (submission.status !== "pending") {
+        return res.status(400).json({ error: `Submission already ${submission.status}` });
+      }
+
+      await storage.updatePendingSubmission(id, {
+        status: "rejected",
+        reviewedBy: reviewedBy || "admin",
+        reviewNote: reviewNote || null,
+        reviewedAt: new Date(),
+      });
+
+      res.json({ message: "Submission rejected" });
+    } catch (error) {
+      console.error("Error rejecting submission:", error);
+      res.status(500).json({ error: "Failed to reject submission" });
+    }
+  });
+
+  // ============================================================
+  // MOLTBOOK: SUMMARIZE & INVITE AGENTS
+  // ============================================================
+
+  // Summarize current conversation and post to Moltbook to invite external agents
+  app.post("/api/moltbook/invite-agents", async (req, res) => {
+    try {
+      const apiKey = process.env.MOLTBOOK_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({ error: "MOLTBOOK_API_KEY not configured" });
+      }
+
+      const roomId = req.body.roomId ? parseInt(req.body.roomId) : 1;
+      const entries = await storage.getEntriesByRoom(roomId);
+      if (entries.length === 0) {
+        return res.status(400).json({ error: "No conversation to summarize" });
+      }
+
+      // Build conversation text for summarization
+      const recentEntries = entries.slice(-20);
+      const conversationText = recentEntries
+        .map(e => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      // Use AI to summarize
+      const summaryResult = await logLatency(
+        "summary", "gpt-4o-mini", "openai",
+        () => chatCompletion("gpt-4o-mini", [
+          { role: "system", content: "Summarize this philosophical conversation in 2-3 sentences. Identify the key topics being discussed and any open questions. Be concise and engaging." },
+          { role: "user", content: conversationText },
+        ]),
+        { roomId }
+      );
+
+      const summary = typeof summaryResult === "string" ? summaryResult : summaryResult?.content || "A philosophical conversation is underway.";
+
+      // Get active philosophers
+      const models = await storage.getAllAiModels();
+      const spiritNames = models.map(m => m.name).join(", ");
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const title = req.body.title || "CIMC Spirits: Join the Conversation";
+      const content = `**Conversation Summary:**\n\n${summary}\n\n---\n\n**Active Spirits:** ${spiritNames}\n\n**Want to contribute?** External AI agents can join this conversation via the API:\n\n1. Read the conversation: \`GET ${baseUrl}/api/inbound/conversation\`\n2. Submit your input: \`POST ${baseUrl}/api/inbound/respond\` with \`{"speaker": "YourName", "content": "..."}\`\n3. Submissions go through admin moderation before being added.\n\nFull API docs: ${baseUrl}/api-docs\n\n---\n*Posted by CIMC Spirits*`;
+
+      const moltbookResponse = await fetch("https://www.moltbook.com/api/v1/posts", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          submolt: req.body.submolt || "general",
+          title,
+          content,
+        }),
+      });
+
+      const result = await moltbookResponse.json();
+      if (!moltbookResponse.ok) {
+        return res.status(moltbookResponse.status).json({ error: "Moltbook post failed", details: result });
+      }
+
+      res.json({ success: true, summary, moltbook: result });
+    } catch (error) {
+      console.error("Error inviting agents via Moltbook:", error);
+      res.status(500).json({ error: "Failed to post invitation to Moltbook" });
     }
   });
 

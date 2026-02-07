@@ -1,7 +1,7 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs, responseRatings,
+  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs, responseRatings, pendingSubmissions,
   type Room, type InsertRoom,
   type ConversationEntry, type InsertConversationEntry,
   type AiModel, type InsertAiModel,
@@ -9,6 +9,7 @@ import {
   type ModelAnalysis, type InsertModelAnalysis,
   type LatencyLog, type InsertLatencyLog,
   type ResponseRating, type InsertResponseRating,
+  type PendingSubmission, type InsertPendingSubmission,
   type User, type InsertUser, users,
 } from "@shared/schema";
 
@@ -55,6 +56,12 @@ export interface IStorage {
   createResponseRating(rating: InsertResponseRating): Promise<ResponseRating>;
   getRatingsByModel(modelId: number): Promise<ResponseRating[]>;
   getRatingByAnalysis(analysisId: number): Promise<ResponseRating | undefined>;
+
+  // Pending Submissions
+  createPendingSubmission(submission: InsertPendingSubmission): Promise<PendingSubmission>;
+  getPendingSubmissions(status?: string): Promise<PendingSubmission[]>;
+  getPendingSubmission(id: number): Promise<PendingSubmission | undefined>;
+  updatePendingSubmission(id: number, updates: Partial<PendingSubmission>): Promise<PendingSubmission | undefined>;
 
   // Latency Logs
   createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog>;
@@ -227,6 +234,32 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(latencyLogs)
       .orderBy(desc(latencyLogs.createdAt))
       .limit(limit);
+  }
+
+  // Pending Submissions
+  async createPendingSubmission(submission: InsertPendingSubmission): Promise<PendingSubmission> {
+    const [created] = await db.insert(pendingSubmissions).values(submission).returning();
+    return created;
+  }
+
+  async getPendingSubmissions(status?: string): Promise<PendingSubmission[]> {
+    if (status) {
+      return db.select().from(pendingSubmissions)
+        .where(eq(pendingSubmissions.status, status))
+        .orderBy(desc(pendingSubmissions.createdAt));
+    }
+    return db.select().from(pendingSubmissions)
+      .orderBy(desc(pendingSubmissions.createdAt));
+  }
+
+  async getPendingSubmission(id: number): Promise<PendingSubmission | undefined> {
+    const [submission] = await db.select().from(pendingSubmissions).where(eq(pendingSubmissions.id, id));
+    return submission;
+  }
+
+  async updatePendingSubmission(id: number, updates: Partial<PendingSubmission>): Promise<PendingSubmission | undefined> {
+    const [updated] = await db.update(pendingSubmissions).set(updates).where(eq(pendingSubmissions.id, id)).returning();
+    return updated;
   }
 
   async getLatencyLogsByOperation(operation: string): Promise<LatencyLog[]> {

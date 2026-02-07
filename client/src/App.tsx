@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Analytics from "@/pages/Analytics";
 import ApiDocs from "@/pages/ApiDocs";
+import AdminQueue from "@/pages/AdminQueue";
 
 function Router() {
   return (
@@ -14,6 +15,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/api-docs" component={ApiDocs} />
+      <Route path="/admin/queue" component={AdminQueue} />
       <Route component={NotFound} />
     </Switch>
   );
