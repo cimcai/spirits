@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings, Save, ChevronDown, ChevronUp } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -21,12 +21,19 @@ const AVAILABLE_VOICES = [
 ];
 
 const AVAILABLE_MODELS = [
-  { value: "gpt-4o-mini", label: "GPT-4o Mini (Fast)" },
-  { value: "gpt-4o", label: "GPT-4o (Balanced)" },
-  { value: "gpt-5-nano", label: "GPT-5 Nano (Fastest)" },
-  { value: "gpt-5-mini", label: "GPT-5 Mini (Efficient)" },
-  { value: "gpt-5", label: "GPT-5 (Capable)" },
-  { value: "gpt-5.2", label: "GPT-5.2 (Most Capable)" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini (Legacy)", group: "GPT" },
+  { value: "gpt-4o", label: "GPT-4o (Legacy)", group: "GPT" },
+  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano", group: "GPT" },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini", group: "GPT" },
+  { value: "gpt-4.1", label: "GPT-4.1", group: "GPT" },
+  { value: "gpt-5-nano", label: "GPT-5 Nano (Fastest)", group: "GPT" },
+  { value: "gpt-5-mini", label: "GPT-5 Mini (Efficient)", group: "GPT" },
+  { value: "gpt-5", label: "GPT-5 (Capable)", group: "GPT" },
+  { value: "gpt-5.1", label: "GPT-5.1", group: "GPT" },
+  { value: "gpt-5.2", label: "GPT-5.2 (Most Capable)", group: "GPT" },
+  { value: "o3-mini", label: "o3-mini (Light Reasoning)", group: "Reasoning" },
+  { value: "o3", label: "o3 (Deep Reasoning)", group: "Reasoning" },
+  { value: "o4-mini", label: "o4-mini (Best Reasoning)", group: "Reasoning" },
 ];
 
 interface ModelConfigPanelProps {
@@ -136,9 +143,18 @@ function ModelEditor({ model }: { model: AiModel }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {AVAILABLE_MODELS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                  ))}
+                  <SelectGroup>
+                    <SelectLabel>GPT Models</SelectLabel>
+                    {AVAILABLE_MODELS.filter((m) => m.group === "GPT").map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Reasoning Models</SelectLabel>
+                    {AVAILABLE_MODELS.filter((m) => m.group === "Reasoning").map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>

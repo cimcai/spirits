@@ -189,7 +189,7 @@ export async function registerRoutes(
       const modelId = parseInt(req.params.modelId);
       
       const validVoices = ["onyx", "nova", "echo", "alloy", "fable", "shimmer"];
-      const validModels = ["gpt-4o-mini", "gpt-4o", "gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5.2"];
+      const validModels = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5.1", "gpt-5.2", "o3-mini", "o3", "o4-mini"];
       
       const updateSchema = insertAiModelSchema.partial();
       const parsed = updateSchema.safeParse(req.body);
