@@ -31,6 +31,9 @@ import sys
 import time
 import math
 import json
+import select
+import tty
+import termios
 
 try:
     import hid
@@ -305,9 +308,34 @@ def run_led_test(controller):
     print("method showed 'OK' for that interface. Report back!\n")
 
 
-def run_remap(controller):
+def _save_button_interfaces(new_interfaces):
+    """Save BUTTON_INTERFACES to the script file and update the global."""
+    global BUTTON_INTERFACES
+    BUTTON_INTERFACES = list(new_interfaces)
+    try:
+        import re
+        with open(__file__, "r") as f:
+            script = f.read()
+        script = re.sub(
+            r"^BUTTON_INTERFACES\s*=\s*\[.*?\]",
+            "BUTTON_INTERFACES = [%d, %d, %d]" % tuple(new_interfaces),
+            script,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        with open(__file__, "w") as f:
+            f.write(script)
+        print("  Saved to script: BUTTON_INTERFACES = %s" % list(new_interfaces))
+    except Exception as e:
+        print("  Could not save to file: %s" % e)
+        print("  Active in memory: BUTTON_INTERFACES = %s" % list(new_interfaces))
+
+
+def run_remap(_ignored=None):
     """Interactive remap mode. Lights up each interface so you can assign
-    them to philosopher buttons 1, 2, 3."""
+    them to philosopher buttons 1, 2, 3. Works standalone or mid-loop."""
+    global BUTTON_INTERFACES
+
     print("\n--- INTERACTIVE REMAP ---")
     print("This will light up each detected interface one at a time.")
     print("You tell it which philosopher button (1, 2, or 3) that")
@@ -363,30 +391,11 @@ def run_remap(controller):
     print("  Philosopher 3 -> interface %d" % new_interfaces[2])
     print()
 
-    confirm = input("Save this mapping to the script? (y/n): ").strip().lower()
+    confirm = input("Apply this mapping? (y/n): ").strip().lower()
     if confirm == "y":
-        try:
-            with open(__file__, "r") as f:
-                script = f.read()
-            import re
-            script = re.sub(
-                r"^BUTTON_INTERFACES\s*=\s*\[.*?\]",
-                "BUTTON_INTERFACES = [%d, %d, %d]" % tuple(new_interfaces),
-                script,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            with open(__file__, "w") as f:
-                f.write(script)
-            print("Saved! BUTTON_INTERFACES = %s" % new_interfaces)
-            print("Restart the script to use the new mapping.\n")
-        except Exception as e:
-            print("Could not save automatically: %s" % e)
-            print("Manually set this line in the script:")
-            print("  BUTTON_INTERFACES = [%d, %d, %d]" % tuple(new_interfaces))
+        _save_button_interfaces(new_interfaces)
     else:
-        print("Not saved. To use this mapping, edit the script:")
-        print("  BUTTON_INTERFACES = [%d, %d, %d]\n" % tuple(new_interfaces))
+        print("  No changes made.\n")
 
 # ---------------------------------------------------------------------------
 # Main loop
@@ -479,11 +488,66 @@ def run():
 
     start_time = time.time()
     last_status = None
+    display_lines = 0
 
-    print("\nStarting LED control loop (Ctrl+C to stop)...\n")
+    print("\nStarting LED control loop...")
+    print("  Keys:  r = remap   t = test   s = swap two buttons   q = quit\n")
 
+    old_settings = termios.tcgetattr(sys.stdin)
     try:
+        tty.setcbreak(sys.stdin.fileno())
+
         while True:
+            if select.select([sys.stdin], [], [], 0)[0]:
+                key = sys.stdin.read(1).lower()
+
+                if key == "q":
+                    break
+
+                elif key == "r":
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    controller.set_all_color(0, 0, 0)
+                    controller.close()
+
+                    run_remap(None)
+
+                    global BUTTON_INTERFACES
+                    controller = ButtonController()
+                    if not controller.connect():
+                        controller = SimulatedController()
+                        controller.connect()
+                    display_lines = 0
+                    print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
+                    tty.setcbreak(sys.stdin.fileno())
+
+                elif key == "t":
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    run_normal_test(controller)
+                    display_lines = 0
+                    print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
+                    tty.setcbreak(sys.stdin.fileno())
+
+                elif key == "s":
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    print("\n--- SWAP TWO BUTTONS ---")
+                    print("  Current mapping: %s" % BUTTON_INTERFACES)
+                    a = input("  Swap button (1/2/3): ").strip()
+                    b = input("  With button (1/2/3): ").strip()
+                    if a in ("1","2","3") and b in ("1","2","3") and a != b:
+                        ai, bi = int(a)-1, int(b)-1
+                        BUTTON_INTERFACES[ai], BUTTON_INTERFACES[bi] = BUTTON_INTERFACES[bi], BUTTON_INTERFACES[ai]
+                        _save_button_interfaces(BUTTON_INTERFACES)
+                        controller.close()
+                        controller = ButtonController()
+                        if not controller.connect():
+                            controller = SimulatedController()
+                            controller.connect()
+                        display_lines = 0
+                    else:
+                        print("  Invalid input, no change.")
+                    print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
+                    tty.setcbreak(sys.stdin.fileno())
+
             status = fetch_led_status(APP_URL)
             if status:
                 last_status = status
@@ -517,13 +581,18 @@ def run():
                     )
 
                 if output_parts:
-                    sys.stdout.write("\033[2K\033[F" * len(output_parts))
+                    if display_lines > 0:
+                        sys.stdout.write("\033[2K\033[F" * display_lines)
                     for part in output_parts:
                         print(part)
+                    display_lines = len(output_parts)
 
             time.sleep(POLL_INTERVAL)
 
     except KeyboardInterrupt:
+        pass
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
         print("\n\nShutting down...")
         controller.close()
         print("LEDs off. Goodbye!")
