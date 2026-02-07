@@ -130,6 +130,32 @@ export const insertResponseRatingSchema = createInsertSchema(responseRatings).om
 export type ResponseRating = typeof responseRatings.$inferSelect;
 export type InsertResponseRating = z.infer<typeof insertResponseRatingSchema>;
 
+// Pending submissions - moderation queue for external bot inputs
+export const pendingSubmissions = pgTable("pending_submissions", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  speaker: text("speaker").notNull(),
+  content: text("content").notNull(),
+  source: text("source").default("api").notNull(),
+  status: text("status").default("pending").notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+
+export const insertPendingSubmissionSchema = createInsertSchema(pendingSubmissions).omit({
+  id: true,
+  status: true,
+  reviewedBy: true,
+  reviewNote: true,
+  createdAt: true,
+  reviewedAt: true,
+});
+
+export type PendingSubmission = typeof pendingSubmissions.$inferSelect;
+export type InsertPendingSubmission = z.infer<typeof insertPendingSubmissionSchema>;
+
 // Latency logs - tracks timing for every AI service call
 export const latencyLogs = pgTable("latency_logs", {
   id: serial("id").primaryKey(),
