@@ -157,7 +157,7 @@ export default function Dashboard() {
     const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
     const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor);
     
-    if (confidence <= 5) return; // Too stale
+    if (confidence <= 50) return; // Too stale
 
     try {
       // Trigger the analysis

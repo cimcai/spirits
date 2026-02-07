@@ -34,7 +34,7 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   const confidence = Math.round(rawConfidence * decayFactor);
   
   // Only show response if confidence hasn't fully decayed
-  const hasResponse = !!latestActiveAnalysis?.proposedResponse && confidence > 5;
+  const hasResponse = !!latestActiveAnalysis?.proposedResponse && confidence > 50;
 
   // Play TTS audio
   const playTTS = async (text: string) => {

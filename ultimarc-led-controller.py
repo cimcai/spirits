@@ -67,7 +67,7 @@ LED_MAP = {
 
 PULSE_SPEED = 2.0
 MIN_PULSE_BRIGHTNESS = 0.2
-CONFIDENCE_THRESHOLD = 5
+CONFIDENCE_THRESHOLD = 50
 
 # ---------------------------------------------------------------------------
 # Color parsing
