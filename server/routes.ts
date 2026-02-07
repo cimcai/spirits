@@ -2,13 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
-import OpenAI from "openai";
 import multer from "multer";
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels } from "./ai-provider";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -67,40 +62,25 @@ export async function registerRoutes(
         .map((e) => `${e.speaker}: ${e.content}`)
         .join("\n");
 
-      // Analyze with each model in parallel
       for (const model of models) {
         try {
-          const response = await openai.chat.completions.create({
-            model: model.llmModel || "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
-              },
-              {
-                role: "user",
-                content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
-              }
-            ],
-            response_format: { type: "json_object" },
+          const result = await analyzeConversation(
+            model.llmModel || "gpt-4o-mini",
+            model.name,
+            model.description || "",
+            model.persona,
+            conversationContext
+          );
+          await storage.createModelAnalysis({
+            roomId,
+            modelId: model.id,
+            conversationEntryId: entry.id,
+            analysis: result.analysis || "No analysis provided",
+            shouldSpeak: result.shouldSpeak || false,
+            confidence: result.confidence || 0,
+            proposedResponse: result.response || null,
+            isTriggered: false,
           });
-
-          const content = response.choices[0]?.message?.content;
-          if (content) {
-            const result = JSON.parse(content);
-            
-            // Save analysis with proposed response (don't auto-trigger)
-            await storage.createModelAnalysis({
-              roomId,
-              modelId: model.id,
-              conversationEntryId: entry.id,
-              analysis: result.analysis || "No analysis provided",
-              shouldSpeak: result.shouldSpeak || false,
-              confidence: result.confidence || 0,
-              proposedResponse: result.response || null,
-              isTriggered: false,
-            });
-          }
         } catch (analysisError) {
           console.error(`Error analyzing with model ${model.name}:`, analysisError);
         }
@@ -189,7 +169,7 @@ export async function registerRoutes(
       const modelId = parseInt(req.params.modelId);
       
       const validVoices = ["onyx", "nova", "echo", "alloy", "fable", "shimmer"];
-      const validModels = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5.1", "gpt-5.2", "o3-mini", "o3", "o4-mini"];
+      const validModels = getAllValidModels();
       
       const updateSchema = insertAiModelSchema.partial();
       const parsed = updateSchema.safeParse(req.body);
@@ -263,35 +243,23 @@ export async function registerRoutes(
 
         for (const model of models) {
           try {
-            const analysisResponse = await openai.chat.completions.create({
-              model: model.llmModel || "gpt-4o-mini",
-              messages: [
-                {
-                  role: "system",
-                  content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
-                },
-                {
-                  role: "user",
-                  content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
-                }
-              ],
-              response_format: { type: "json_object" },
+            const result = await analyzeConversation(
+              model.llmModel || "gpt-4o-mini",
+              model.name,
+              model.description || "",
+              model.persona,
+              conversationContext
+            );
+            await storage.createModelAnalysis({
+              roomId,
+              modelId: model.id,
+              conversationEntryId: entry.id,
+              analysis: result.analysis || "No analysis provided",
+              shouldSpeak: result.shouldSpeak || false,
+              confidence: result.confidence || 0,
+              proposedResponse: result.response || null,
+              isTriggered: false,
             });
-
-            const analysisContent = analysisResponse.choices[0]?.message?.content;
-            if (analysisContent) {
-              const result = JSON.parse(analysisContent);
-              await storage.createModelAnalysis({
-                roomId,
-                modelId: model.id,
-                conversationEntryId: entry.id,
-                analysis: result.analysis || "No analysis provided",
-                shouldSpeak: result.shouldSpeak || false,
-                confidence: result.confidence || 0,
-                proposedResponse: result.response || null,
-                isTriggered: false,
-              });
-            }
           } catch (analysisError) {
             console.error(`Error analyzing with model ${model.name}:`, analysisError);
           }
@@ -383,35 +351,23 @@ export async function registerRoutes(
 
       for (const model of models) {
         try {
-          const analysisResponse = await openai.chat.completions.create({
-            model: model.llmModel || "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
-              },
-              {
-                role: "user",
-                content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
-              }
-            ],
-            response_format: { type: "json_object" },
+          const result = await analyzeConversation(
+            model.llmModel || "gpt-4o-mini",
+            model.name,
+            model.description || "",
+            model.persona,
+            conversationContext
+          );
+          await storage.createModelAnalysis({
+            roomId,
+            modelId: model.id,
+            conversationEntryId: entry.id,
+            analysis: result.analysis || "No analysis provided",
+            shouldSpeak: result.shouldSpeak || false,
+            confidence: result.confidence || 0,
+            proposedResponse: result.response || null,
+            isTriggered: false,
           });
-
-          const analysisContent = analysisResponse.choices[0]?.message?.content;
-          if (analysisContent) {
-            const result = JSON.parse(analysisContent);
-            await storage.createModelAnalysis({
-              roomId,
-              modelId: model.id,
-              conversationEntryId: entry.id,
-              analysis: result.analysis || "No analysis provided",
-              shouldSpeak: result.shouldSpeak || false,
-              confidence: result.confidence || 0,
-              proposedResponse: result.response || null,
-              isTriggered: false,
-            });
-          }
         } catch (analysisError) {
           console.error(`Error analyzing with model ${model.name}:`, analysisError);
         }

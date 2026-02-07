@@ -21,20 +21,31 @@ const AVAILABLE_VOICES = [
 ];
 
 const AVAILABLE_MODELS = [
-  { value: "gpt-4o-mini", label: "GPT-4o Mini (Legacy)", group: "GPT" },
-  { value: "gpt-4o", label: "GPT-4o (Legacy)", group: "GPT" },
-  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano", group: "GPT" },
-  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini", group: "GPT" },
-  { value: "gpt-4.1", label: "GPT-4.1", group: "GPT" },
-  { value: "gpt-5-nano", label: "GPT-5 Nano (Fastest)", group: "GPT" },
-  { value: "gpt-5-mini", label: "GPT-5 Mini (Efficient)", group: "GPT" },
-  { value: "gpt-5", label: "GPT-5 (Capable)", group: "GPT" },
-  { value: "gpt-5.1", label: "GPT-5.1", group: "GPT" },
-  { value: "gpt-5.2", label: "GPT-5.2 (Most Capable)", group: "GPT" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini (Legacy)", group: "OpenAI" },
+  { value: "gpt-4o", label: "GPT-4o (Legacy)", group: "OpenAI" },
+  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano", group: "OpenAI" },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini", group: "OpenAI" },
+  { value: "gpt-4.1", label: "GPT-4.1", group: "OpenAI" },
+  { value: "gpt-5-nano", label: "GPT-5 Nano (Fastest)", group: "OpenAI" },
+  { value: "gpt-5-mini", label: "GPT-5 Mini (Efficient)", group: "OpenAI" },
+  { value: "gpt-5", label: "GPT-5 (Capable)", group: "OpenAI" },
+  { value: "gpt-5.1", label: "GPT-5.1", group: "OpenAI" },
+  { value: "gpt-5.2", label: "GPT-5.2 (Most Capable)", group: "OpenAI" },
   { value: "o3-mini", label: "o3-mini (Light Reasoning)", group: "Reasoning" },
   { value: "o3", label: "o3 (Deep Reasoning)", group: "Reasoning" },
   { value: "o4-mini", label: "o4-mini (Best Reasoning)", group: "Reasoning" },
+  { value: "claude-opus-4-5", label: "Opus 4.5 (Most Capable)", group: "Claude" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5 (Balanced)", group: "Claude" },
+  { value: "claude-haiku-4-5", label: "Haiku 4.5 (Fast)", group: "Claude" },
+  { value: "deepseek/deepseek-chat-v3.1", label: "DeepSeek V3.1 Chat", group: "DeepSeek" },
+  { value: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2", group: "DeepSeek" },
+  { value: "deepseek/deepseek-r1", label: "DeepSeek R1 (Reasoning)", group: "DeepSeek" },
+  { value: "x-ai/grok-4", label: "Grok 4", group: "Grok" },
+  { value: "x-ai/grok-4.1-fast", label: "Grok 4.1 Fast", group: "Grok" },
+  { value: "x-ai/grok-3-mini", label: "Grok 3 Mini", group: "Grok" },
 ];
+
+const MODEL_GROUPS = ["OpenAI", "Reasoning", "Claude", "DeepSeek", "Grok"];
 
 interface ModelConfigPanelProps {
   models: AiModel[];
@@ -143,18 +154,14 @@ function ModelEditor({ model }: { model: AiModel }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>GPT Models</SelectLabel>
-                    {AVAILABLE_MODELS.filter((m) => m.group === "GPT").map((m) => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectGroup>
-                    <SelectLabel>Reasoning Models</SelectLabel>
-                    {AVAILABLE_MODELS.filter((m) => m.group === "Reasoning").map((m) => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectGroup>
+                  {MODEL_GROUPS.map((group) => (
+                    <SelectGroup key={group}>
+                      <SelectLabel>{group}</SelectLabel>
+                      {AVAILABLE_MODELS.filter((m) => m.group === group).map((m) => (
+                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
