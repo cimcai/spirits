@@ -94,34 +94,66 @@ class USBButtonDevice:
             self.device = None
             return False
 
-    def set_color(self, r, g, b):
+    def set_color(self, r, g, b, verbose=False):
         if not self.device:
             return False
         r = max(0, min(255, int(r)))
         g = max(0, min(255, int(g)))
         b = max(0, min(255, int(b)))
-        try:
-            report = [0x00, 0x00, 0x00, 0x00, 0x00]
-            report[1] = r
-            report[2] = g
-            report[3] = b
-            self.device.send_feature_report(report)
-            return True
-        except Exception:
-            pass
-        try:
-            report = [0x00, r, g, b]
-            self.device.write(report)
-            return True
-        except Exception:
-            pass
-        try:
-            report = [0x00, 0x01, r, g, b]
-            self.device.send_feature_report(report)
-            return True
-        except Exception as e:
-            print("  Button %d: Write error - %s" % (self.index, e))
-            return False
+
+        methods = [
+            ("feature[0,R,G,B,0]",       lambda: self.device.send_feature_report([0x00, r, g, b, 0x00])),
+            ("feature[0,0,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x00, r, g, b])),
+            ("feature[0,1,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x01, r, g, b])),
+            ("write[0,R,G,B]",           lambda: self.device.write([0x00, r, g, b])),
+            ("write[0,0,R,G,B]",         lambda: self.device.write([0x00, 0x00, r, g, b])),
+            ("write[R,G,B]",             lambda: self.device.write([r, g, b])),
+            ("feature[0,R,G,B]",         lambda: self.device.send_feature_report([0x00, r, g, b])),
+            ("write[0,1,R,G,B]",         lambda: self.device.write([0x00, 0x01, r, g, b])),
+            ("feature[1,R,G,B,0]",       lambda: self.device.send_feature_report([0x01, r, g, b, 0x00])),
+            ("write[0,0,0,R,G,B]",       lambda: self.device.write([0x00, 0x00, 0x00, r, g, b])),
+            ("feature[0,0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
+        ]
+
+        for name, fn in methods:
+            try:
+                fn()
+                if verbose:
+                    print("    [%d] %s -> OK" % (self.index, name))
+                return True
+            except Exception as e:
+                if verbose:
+                    print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
+        return False
+
+    def set_color_bruteforce(self, r, g, b):
+        """Try ALL write methods on this device. Used during testing to find what works."""
+        if not self.device:
+            return
+        r = max(0, min(255, int(r)))
+        g = max(0, min(255, int(g)))
+        b = max(0, min(255, int(b)))
+
+        methods = [
+            ("feature[0,R,G,B,0]",       lambda: self.device.send_feature_report([0x00, r, g, b, 0x00])),
+            ("feature[0,0,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x00, r, g, b])),
+            ("feature[0,1,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x01, r, g, b])),
+            ("write[0,R,G,B]",           lambda: self.device.write([0x00, r, g, b])),
+            ("write[0,0,R,G,B]",         lambda: self.device.write([0x00, 0x00, r, g, b])),
+            ("write[R,G,B]",             lambda: self.device.write([r, g, b])),
+            ("feature[0,R,G,B]",         lambda: self.device.send_feature_report([0x00, r, g, b])),
+            ("write[0,1,R,G,B]",         lambda: self.device.write([0x00, 0x01, r, g, b])),
+            ("feature[1,R,G,B,0]",       lambda: self.device.send_feature_report([0x01, r, g, b, 0x00])),
+            ("write[0,0,0,R,G,B]",       lambda: self.device.write([0x00, 0x00, 0x00, r, g, b])),
+            ("feature[0,0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
+        ]
+
+        for name, fn in methods:
+            try:
+                fn()
+                print("    [%d] %s -> OK" % (self.index, name))
+            except Exception as e:
+                print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
 
     def close(self):
         if self.device:
@@ -224,44 +256,25 @@ class SimulatedController:
 # ---------------------------------------------------------------------------
 
 def run_led_test(controller):
-    print("\n--- LED Test Sequence ---")
-    print("Testing %d interface(s) one at a time...\n" % controller.count())
-    print("Watch which physical buttons light up for each number.\n")
-
-    test_colors = [
-        (255, 0, 0),
-        (0, 255, 0),
-        (0, 0, 255),
-    ]
-
-    controller.set_all_color(0, 0, 0)
-    time.sleep(0.3)
+    print("\n--- LED BRUTEFORCE TEST ---")
+    print("Testing %d interface(s), trying ALL write methods on each.\n" % controller.count())
+    print("Watch your buttons carefully - note which interface + method lights up!")
+    print("Each interface will be tested with RED for 2 seconds.\n")
 
     for idx in range(1, controller.count() + 1):
-        color = test_colors[(idx - 1) % len(test_colors)]
-        print("  Interface %d -> setting to RGB(%d, %d, %d)" % (idx, color[0], color[1], color[2]))
-        controller.set_button_color(idx, *color)
-        time.sleep(1.0)
-        controller.set_button_color(idx, 0, 0, 0)
-        time.sleep(0.3)
+        btn = controller.buttons[idx - 1]
+        print("\n=== Interface %d ===" % idx)
+        print("  Trying all write methods with RED (255, 0, 0)...")
+        btn.set_color_bruteforce(255, 0, 0)
+        print("  >> Did a button light up? Waiting 2 seconds...")
+        time.sleep(2.0)
+        print("  Clearing (trying all methods with 0, 0, 0)...")
+        btn.set_color_bruteforce(0, 0, 0)
+        time.sleep(0.5)
 
-    print("\n  Now lighting all at once (white)...")
-    controller.set_all_color(255, 255, 255)
-    time.sleep(1.5)
-
-    print("  Fading out...\n")
-    for step in range(10, -1, -1):
-        factor = step / 10.0
-        controller.set_all_color(
-            int(255 * factor),
-            int(255 * factor),
-            int(255 * factor),
-        )
-        time.sleep(0.03)
-
-    print("--- LED Test Complete ---")
-    print("Note which interface numbers lit up which physical buttons.")
-    print("You may need to update BUTTON_INTERFACES below to match.\n")
+    print("\n--- BRUTEFORCE TEST COMPLETE ---")
+    print("If any buttons lit up, note the interface number and which")
+    print("method showed 'OK' for that interface. Report back!\n")
 
 # ---------------------------------------------------------------------------
 # Main loop
