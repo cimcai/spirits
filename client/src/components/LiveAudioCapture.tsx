@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Mic, MicOff, Radio } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+const CHUNK_INTERVAL_MS = 6000;
 
 interface LiveAudioCaptureProps {
   roomId?: number;
@@ -15,13 +17,16 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
+  const [transcriptCount, setTranscriptCount] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef(false);
 
   const sendAudioForTranscription = useCallback(async (audioBlob: Blob) => {
     if (!roomId || audioBlob.size < 1000) return;
-    
+
     setIsTranscribing(true);
     try {
       const formData = new FormData();
@@ -37,31 +42,50 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         const data = await response.json();
         if (data.text) {
           setLastTranscript(data.text);
+          setTranscriptCount((c) => c + 1);
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomId, "entries"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomId, "analyses"] });
-          toast({
-            title: "Live Audio",
-            description: `Transcribed: "${data.text.substring(0, 60)}${data.text.length > 60 ? '...' : ''}"`,
-          });
         }
       }
     } catch (error) {
       console.error("Transcription error:", error);
-      toast({
-        title: "Error",
-        description: "Failed to transcribe audio",
-        variant: "destructive",
-      });
     } finally {
       setIsTranscribing(false);
     }
-  }, [roomId, toast]);
+  }, [roomId]);
+
+  const harvestChunk = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+
+    recorder.stop();
+
+    const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+    chunksRef.current = [];
+    sendAudioForTranscription(audioBlob);
+
+    if (isRecordingRef.current && streamRef.current) {
+      const newRecorder = new MediaRecorder(streamRef.current, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
+      newRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+      newRecorder.start();
+      mediaRecorderRef.current = newRecorder;
+    }
+  }, [sendAudioForTranscription]);
 
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       chunksRef.current = [];
+      isRecordingRef.current = true;
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -75,19 +99,18 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         }
       };
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-        chunksRef.current = [];
-        sendAudioForTranscription(audioBlob);
-      };
-
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
       setIsRecording(true);
+      setTranscriptCount(0);
+
+      intervalRef.current = setInterval(() => {
+        harvestChunk();
+      }, CHUNK_INTERVAL_MS);
 
       toast({
-        title: "Recording Started",
-        description: "Speak into your microphone. Click Stop when done.",
+        title: "Live Mic Active",
+        description: "Listening and auto-transcribing every few seconds.",
       });
     } catch (error) {
       console.error("Microphone error:", error);
@@ -97,17 +120,42 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         variant: "destructive",
       });
     }
-  }, [sendAudioForTranscription, toast]);
+  }, [harvestChunk, toast]);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
+    isRecordingRef.current = false;
+
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
+
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+      chunksRef.current = [];
+      if (audioBlob.size >= 1000) {
+        sendAudioForTranscription(audioBlob);
+      }
+    }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     setIsRecording(false);
+  }, [sendAudioForTranscription]);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
   }, []);
 
   return (
@@ -120,7 +168,7 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Record your voice and add it to the philosophical conversation. The AI philosophers will analyze your words.
+          Record your voice. Audio is automatically transcribed every {CHUNK_INTERVAL_MS / 1000}s and fed to the philosophers.
         </p>
 
         {isRecording ? (
@@ -156,9 +204,17 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         )}
 
         {isRecording && (
-          <div className="flex items-center gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/20">
-            <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-            <span className="text-xs text-destructive font-medium">Recording in progress...</span>
+          <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/20">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+              <span className="text-xs text-destructive font-medium">Listening...</span>
+            </div>
+            {isTranscribing && (
+              <Badge variant="secondary" className="text-xs">Transcribing</Badge>
+            )}
+            {transcriptCount > 0 && (
+              <span className="text-xs text-muted-foreground">{transcriptCount} segments</span>
+            )}
           </div>
         )}
 
