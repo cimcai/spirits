@@ -169,6 +169,70 @@ class SimulatedDevice:
         pass
 
 # ---------------------------------------------------------------------------
+# Startup LED test sequence
+# ---------------------------------------------------------------------------
+
+def run_led_test(device):
+    print("\n--- LED Test Sequence ---")
+    print("Cycling colors on all buttons...\n")
+
+    test_colors = [
+        ("Red",     255, 0,   0),
+        ("Green",   0,   255, 0),
+        ("Blue",    0,   0,   255),
+        ("Yellow",  255, 255, 0),
+        ("Cyan",    0,   255, 255),
+        ("Magenta", 255, 0,   255),
+        ("White",   255, 255, 255),
+    ]
+
+    hold_time = 0.4
+    fade_steps = 10
+    fade_time = 0.03
+
+    for color_name, r, g, b in test_colors:
+        print("  %s" % color_name)
+        for idx, mapping in LED_MAP.items():
+            channels = mapping["channels"]
+            for step in range(fade_steps):
+                factor = (step + 1) / fade_steps
+                device.set_led_rgb(
+                    channels,
+                    int(r * factor),
+                    int(g * factor),
+                    int(b * factor),
+                )
+                time.sleep(fade_time)
+        time.sleep(hold_time)
+
+    print("\n  Chase pattern...")
+    chase_color = (255, 255, 255)
+    for _round in range(3):
+        for idx in sorted(LED_MAP.keys()):
+            for other_idx, mapping in LED_MAP.items():
+                if other_idx == idx:
+                    device.set_led_rgb(mapping["channels"], *chase_color)
+                else:
+                    device.set_led_rgb(mapping["channels"], 0, 0, 0)
+            time.sleep(0.15)
+
+    print("  Fading out...\n")
+    for step in range(fade_steps, -1, -1):
+        factor = step / fade_steps
+        for idx, mapping in LED_MAP.items():
+            device.set_led_rgb(
+                mapping["channels"],
+                int(255 * factor),
+                int(255 * factor),
+                int(255 * factor),
+            )
+        time.sleep(fade_time)
+
+    print("--- LED Test Complete ---")
+    print("If you saw colors cycle on your buttons, hardware is working!\n")
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -203,10 +267,14 @@ def run():
     print()
 
     device = UltimarcDevice()
-    if not device.connect():
+    is_real_hardware = device.connect()
+    if not is_real_hardware:
         print("No Ultimarc hardware detected.")
         device = SimulatedDevice()
         device.connect()
+
+    if is_real_hardware:
+        run_led_test(device)
 
     start_time = time.time()
     last_status = None
