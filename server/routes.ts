@@ -3,7 +3,41 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
 import multer from "multer";
-import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels } from "./ai-provider";
+import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
+
+async function logLatency(
+  operation: string,
+  model: string,
+  service: string,
+  fn: () => Promise<any>,
+  extra?: { roomId?: number; modelId?: number; metadata?: Record<string, any> }
+) {
+  const start = Date.now();
+  let success = true;
+  let error: string | undefined;
+  let result: any;
+  try {
+    result = await fn();
+  } catch (err: any) {
+    success = false;
+    error = err?.message || String(err);
+    throw err;
+  } finally {
+    const latencyMs = Date.now() - start;
+    storage.createLatencyLog({
+      operation,
+      model,
+      service,
+      latencyMs,
+      success,
+      error: error || null,
+      roomId: extra?.roomId ?? null,
+      modelId: extra?.modelId ?? null,
+      metadata: extra?.metadata ? JSON.stringify(extra.metadata) : null,
+    }).catch(logErr => console.error("Failed to save latency log:", logErr));
+  }
+  return result;
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -64,12 +98,11 @@ export async function registerRoutes(
 
       for (const model of models) {
         try {
-          const result = await analyzeConversation(
-            model.llmModel || "gpt-4o-mini",
-            model.name,
-            model.description || "",
-            model.persona,
-            conversationContext
+          const llmModel = model.llmModel || "gpt-4o-mini";
+          const result = await logLatency(
+            "analysis", llmModel, getProvider(llmModel),
+            () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+            { roomId, modelId: model.id, metadata: { philosopherName: model.name } }
           );
           await storage.createModelAnalysis({
             roomId,
@@ -211,19 +244,19 @@ export async function registerRoutes(
       }
 
       const file = new File([req.file.buffer], "audio.webm", { type: req.file.mimetype });
+      const roomId = req.body?.roomId ? parseInt(req.body.roomId) : null;
       
-      const transcription = await openai.audio.transcriptions.create({
-        file,
-        model: "gpt-4o-mini-transcribe",
-      });
+      const transcription = await logLatency(
+        "transcription", "gpt-4o-mini-transcribe", "openai",
+        () => openai.audio.transcriptions.create({ file, model: "gpt-4o-mini-transcribe" }),
+        { roomId: roomId ?? undefined, metadata: { inputSize: req.file.buffer.length } }
+      );
 
       const text = transcription.text?.trim();
       if (!text) {
         return res.status(200).json({ text: "", entry: null });
       }
 
-      // If roomId provided, create a conversation entry
-      const roomId = req.body?.roomId ? parseInt(req.body.roomId) : null;
       let entry = null;
 
       if (roomId) {
@@ -243,12 +276,11 @@ export async function registerRoutes(
 
         for (const model of models) {
           try {
-            const result = await analyzeConversation(
-              model.llmModel || "gpt-4o-mini",
-              model.name,
-              model.description || "",
-              model.persona,
-              conversationContext
+            const llmModel = model.llmModel || "gpt-4o-mini";
+            const result = await logLatency(
+              "analysis", llmModel, getProvider(llmModel),
+              () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+              { roomId, modelId: model.id, metadata: { philosopherName: model.name, source: "transcription" } }
             );
             await storage.createModelAnalysis({
               roomId,
@@ -340,21 +372,25 @@ export async function registerRoutes(
       const speakers = ["Aiden", "Mira", "Leo", "Sage"];
       const speaker = speakers[Math.floor(Math.random() * speakers.length)];
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are generating dialogue for a philosophical discussion between friends. Generate a single thoughtful statement or question from ${speaker}. Topics include: meaning of life, consciousness, free will, ethics, happiness, death, reality, knowledge, virtue, justice. Keep it conversational (1-2 sentences). Just output the statement, no speaker name prefix.`
-          },
-          {
-            role: "user",
-            content: recentContext 
-              ? `Continue this philosophical conversation:\n${recentContext}\n\nGenerate ${speaker}'s next contribution:`
-              : `Start a philosophical conversation. Generate ${speaker}'s opening thought:`
-          }
-        ],
-      });
+      const response = await logLatency(
+        "dialogue_generation", "gpt-4o-mini", "openai",
+        () => openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You are generating dialogue for a philosophical discussion between friends. Generate a single thoughtful statement or question from ${speaker}. Topics include: meaning of life, consciousness, free will, ethics, happiness, death, reality, knowledge, virtue, justice. Keep it conversational (1-2 sentences). Just output the statement, no speaker name prefix.`
+            },
+            {
+              role: "user",
+              content: recentContext 
+                ? `Continue this philosophical conversation:\n${recentContext}\n\nGenerate ${speaker}'s next contribution:`
+                : `Start a philosophical conversation. Generate ${speaker}'s opening thought:`
+            }
+          ],
+        }),
+        { roomId, metadata: { speaker } }
+      );
 
       const content = response.choices[0]?.message?.content?.trim();
       if (!content) {
@@ -378,12 +414,11 @@ export async function registerRoutes(
 
       for (const model of models) {
         try {
-          const result = await analyzeConversation(
-            model.llmModel || "gpt-4o-mini",
-            model.name,
-            model.description || "",
-            model.persona,
-            conversationContext
+          const llmModel = model.llmModel || "gpt-4o-mini";
+          const result = await logLatency(
+            "analysis", llmModel, getProvider(llmModel),
+            () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+            { roomId, modelId: model.id, metadata: { philosopherName: model.name, source: "dialogue" } }
           );
           await storage.createModelAnalysis({
             roomId,
@@ -416,16 +451,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Text is required" });
       }
 
-      // Use OpenAI TTS via gpt-audio model
-      const response = await openai.chat.completions.create({
-        model: "gpt-audio",
-        modalities: ["text", "audio"],
-        audio: { voice, format: "wav" },
-        messages: [
-          { role: "system", content: "You are an assistant that performs text-to-speech. Speak with the gravitas and wisdom befitting a philosopher." },
-          { role: "user", content: `Repeat the following text verbatim: ${text}` },
-        ],
-      });
+      const response = await logLatency(
+        "tts", "gpt-audio", "openai",
+        () => openai.chat.completions.create({
+          model: "gpt-audio",
+          modalities: ["text", "audio"],
+          audio: { voice, format: "wav" },
+          messages: [
+            { role: "system", content: "You are an assistant that performs text-to-speech. Speak with the gravitas and wisdom befitting a philosopher." },
+            { role: "user", content: `Repeat the following text verbatim: ${text}` },
+          ],
+        }),
+        { metadata: { voice, textLength: text.length } }
+      );
 
       const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
       
@@ -443,6 +481,85 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error generating TTS:", error);
       res.status(500).json({ error: "Failed to generate speech" });
+    }
+  });
+
+  // Latency analytics endpoints
+  app.get("/api/latency", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+      const operation = req.query.operation as string | undefined;
+      const logs = operation
+        ? await storage.getLatencyLogsByOperation(operation)
+        : await storage.getLatencyLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching latency logs:", error);
+      res.status(500).json({ error: "Failed to fetch latency logs" });
+    }
+  });
+
+  app.get("/api/latency/summary", async (req, res) => {
+    try {
+      const logs = await storage.getLatencyLogs(500);
+      const byOperation: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; errors: number }> = {};
+      const byModel: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number }> = {};
+      const byService: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number }> = {};
+
+      for (const log of logs) {
+        // By operation
+        if (!byOperation[log.operation]) {
+          byOperation[log.operation] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0, errors: 0 };
+        }
+        const op = byOperation[log.operation];
+        op.count++;
+        op.totalMs += log.latencyMs;
+        op.minMs = Math.min(op.minMs, log.latencyMs);
+        op.maxMs = Math.max(op.maxMs, log.latencyMs);
+        if (!log.success) op.errors++;
+
+        // By model
+        if (!byModel[log.model]) {
+          byModel[log.model] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0 };
+        }
+        const m = byModel[log.model];
+        m.count++;
+        m.totalMs += log.latencyMs;
+        m.minMs = Math.min(m.minMs, log.latencyMs);
+        m.maxMs = Math.max(m.maxMs, log.latencyMs);
+
+        // By service
+        if (!byService[log.service]) {
+          byService[log.service] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0 };
+        }
+        const s = byService[log.service];
+        s.count++;
+        s.totalMs += log.latencyMs;
+        s.minMs = Math.min(s.minMs, log.latencyMs);
+        s.maxMs = Math.max(s.maxMs, log.latencyMs);
+      }
+
+      // Calculate averages
+      for (const key in byOperation) {
+        const o = byOperation[key];
+        o.avgMs = Math.round(o.totalMs / o.count);
+        if (o.minMs === Infinity) o.minMs = 0;
+      }
+      for (const key in byModel) {
+        const m = byModel[key];
+        m.avgMs = Math.round(m.totalMs / m.count);
+        if (m.minMs === Infinity) m.minMs = 0;
+      }
+      for (const key in byService) {
+        const s = byService[key];
+        s.avgMs = Math.round(s.totalMs / s.count);
+        if (s.minMs === Infinity) s.minMs = 0;
+      }
+
+      res.json({ byOperation, byModel, byService, totalLogs: logs.length });
+    } catch (error) {
+      console.error("Error fetching latency summary:", error);
+      res.status(500).json({ error: "Failed to fetch latency summary" });
     }
   });
 

@@ -1,12 +1,13 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses,
+  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs,
   type Room, type InsertRoom,
   type ConversationEntry, type InsertConversationEntry,
   type AiModel, type InsertAiModel,
   type OutboundCall, type InsertOutboundCall,
   type ModelAnalysis, type InsertModelAnalysis,
+  type LatencyLog, type InsertLatencyLog,
   type User, type InsertUser, users,
 } from "@shared/schema";
 
@@ -47,6 +48,11 @@ export interface IStorage {
   createOutboundCall(call: InsertOutboundCall): Promise<OutboundCall>;
   updateCallStatus(id: number, status: string): Promise<void>;
   deleteCallsByRoom(roomId: number): Promise<void>;
+
+  // Latency Logs
+  createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog>;
+  getLatencyLogs(limit?: number): Promise<LatencyLog[]>;
+  getLatencyLogsByOperation(operation: string): Promise<LatencyLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -179,6 +185,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCallsByRoom(roomId: number): Promise<void> {
     await db.delete(outboundCalls).where(eq(outboundCalls.roomId, roomId));
+  }
+
+  // Latency Logs
+  async createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog> {
+    const [created] = await db.insert(latencyLogs).values(log).returning();
+    return created;
+  }
+
+  async getLatencyLogs(limit: number = 100): Promise<LatencyLog[]> {
+    return db.select().from(latencyLogs)
+      .orderBy(desc(latencyLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getLatencyLogsByOperation(operation: string): Promise<LatencyLog[]> {
+    return db.select().from(latencyLogs)
+      .where(eq(latencyLogs.operation, operation))
+      .orderBy(desc(latencyLogs.createdAt))
+      .limit(100);
   }
 }
 

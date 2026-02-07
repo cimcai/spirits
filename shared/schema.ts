@@ -112,5 +112,28 @@ export const insertModelAnalysisSchema = createInsertSchema(modelAnalyses).omit(
 export type ModelAnalysis = typeof modelAnalyses.$inferSelect;
 export type InsertModelAnalysis = z.infer<typeof insertModelAnalysisSchema>;
 
+// Latency logs - tracks timing for every AI service call
+export const latencyLogs = pgTable("latency_logs", {
+  id: serial("id").primaryKey(),
+  operation: text("operation").notNull(), // 'transcription' | 'analysis' | 'dialogue_generation' | 'tts'
+  model: text("model").notNull(),
+  service: text("service").notNull(), // 'openai' | 'anthropic' | 'openrouter'
+  latencyMs: integer("latency_ms").notNull(),
+  success: boolean("success").default(true).notNull(),
+  error: text("error"),
+  roomId: integer("room_id"),
+  modelId: integer("model_id"),
+  metadata: text("metadata"), // JSON string for extra info (e.g. voice, input size)
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertLatencyLogSchema = createInsertSchema(latencyLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type LatencyLog = typeof latencyLogs.$inferSelect;
+export type InsertLatencyLog = z.infer<typeof insertLatencyLogSchema>;
+
 // Re-export chat models for the integration
 export * from "./models/chat";
