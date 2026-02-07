@@ -95,26 +95,28 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state !== "recording") return;
 
+    recorder.onstop = () => {
+      const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+      chunksRef.current = [];
+      sendAudioForTranscription(audioBlob);
+
+      if (isRecordingRef.current && streamRef.current) {
+        const newRecorder = new MediaRecorder(streamRef.current, {
+          mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : "audio/webm",
+        });
+        newRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunksRef.current.push(e.data);
+          }
+        };
+        newRecorder.start();
+        mediaRecorderRef.current = newRecorder;
+      }
+    };
+
     recorder.stop();
-
-    const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-    chunksRef.current = [];
-    sendAudioForTranscription(audioBlob);
-
-    if (isRecordingRef.current && streamRef.current) {
-      const newRecorder = new MediaRecorder(streamRef.current, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm",
-      });
-      newRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-      newRecorder.start();
-      mediaRecorderRef.current = newRecorder;
-    }
   }, [sendAudioForTranscription]);
 
   const startRecording = useCallback(async () => {
@@ -169,18 +171,25 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
 
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
+      const stream = streamRef.current;
+      recorder.onstop = () => {
+        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+        chunksRef.current = [];
+        if (audioBlob.size >= 1000) {
+          sendAudioForTranscription(audioBlob);
+        }
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      };
       recorder.stop();
-      const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-      chunksRef.current = [];
-      if (audioBlob.size >= 1000) {
-        sendAudioForTranscription(audioBlob);
+    } else {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     }
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
+    streamRef.current = null;
     setIsRecording(false);
   }, [sendAudioForTranscription]);
 
