@@ -285,6 +285,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/led-status", async (req, res) => {
+    try {
+      const models = await storage.getAllAiModels();
+      const roomId = req.query.roomId ? parseInt(req.query.roomId as string) : 1;
+      const statuses = await Promise.all(
+        models.map(async (model, index) => {
+          const latest = await storage.getLatestAnalysisByModel(roomId, model.id);
+          const confidence = latest?.confidence ?? 0;
+          const brightness = Math.round((confidence / 100) * 255);
+          return {
+            index: index + 1,
+            modelId: model.id,
+            name: model.name,
+            color: model.color,
+            confidence,
+            brightness,
+            shouldSpeak: latest?.shouldSpeak ?? false,
+          };
+        })
+      );
+      res.json(statuses);
+    } catch (error) {
+      console.error("Error fetching LED status:", error);
+      res.status(500).json({ error: "Failed to fetch LED status" });
+    }
+  });
+
   // Get calls for a room
   app.get("/api/rooms/:roomId/calls", async (req, res) => {
     try {
