@@ -59,6 +59,12 @@ PULSE_SPEED = 2.0
 MIN_PULSE_BRIGHTNESS = 0.2
 CONFIDENCE_THRESHOLD = 50
 
+# Which HID interface indices (0-based) control the LEDs for each button.
+# From bruteforce test: interfaces 1, 5, 9 lit up (i.e. indices 0, 4, 8).
+# Map: Button 1 (philosopher 1) = interface 0, Button 2 = interface 4, Button 3 = interface 8
+# Change these if your buttons respond on different interfaces.
+BUTTON_INTERFACES = [0, 4, 8]
+
 # ---------------------------------------------------------------------------
 # Color utilities
 # ---------------------------------------------------------------------------
@@ -164,7 +170,9 @@ class USBButtonDevice:
             self.device = None
 
 
-def find_usb_buttons():
+def find_usb_buttons(led_indices=None, bruteforce=False):
+    """Find USBButton devices. If led_indices is provided, only open those
+    specific interface indices (0-based). Otherwise open all."""
     devices = hid.enumerate(ULTIMARC_VENDOR_ID, USBBUTTON_PRODUCT_ID)
 
     seen_paths = set()
@@ -180,17 +188,31 @@ def find_usb_buttons():
         iface = dev.get("interface_number", "?")
         usage = dev.get("usage", "?")
         usage_page = dev.get("usage_page", "?")
-        print("  [%d] interface=%s usage_page=0x%s usage=0x%s" % (
+        marker = " <-- LED" if (led_indices and i in led_indices) else ""
+        print("  [%d] interface=%s usage_page=0x%s usage=0x%s%s" % (
             i, iface,
             ("%04X" % usage_page) if isinstance(usage_page, int) else str(usage_page),
             ("%04X" % usage) if isinstance(usage, int) else str(usage),
+            marker,
         ))
 
+    if bruteforce:
+        buttons = []
+        for i, dev_info in enumerate(unique_devices):
+            btn = USBButtonDevice(dev_info["path"], i + 1)
+            if btn.connect():
+                buttons.append(btn)
+        return buttons
+
+    indices_to_open = led_indices if led_indices else list(range(len(unique_devices)))
     buttons = []
-    for i, dev_info in enumerate(unique_devices):
-        btn = USBButtonDevice(dev_info["path"], i + 1)
-        if btn.connect():
-            buttons.append(btn)
+    for btn_num, idx in enumerate(indices_to_open):
+        if idx < len(unique_devices):
+            btn = USBButtonDevice(unique_devices[idx]["path"], btn_num + 1)
+            if btn.connect():
+                buttons.append(btn)
+            else:
+                print("  WARNING: Could not open interface %d for button %d" % (idx, btn_num + 1))
 
     return buttons
 
@@ -199,15 +221,21 @@ def find_usb_buttons():
 # ---------------------------------------------------------------------------
 
 class ButtonController:
-    def __init__(self):
+    def __init__(self, bruteforce=False):
         self.buttons = []
         self.is_real = False
+        self.bruteforce = bruteforce
 
     def connect(self):
-        self.buttons = find_usb_buttons()
+        if self.bruteforce:
+            self.buttons = find_usb_buttons(bruteforce=True)
+        else:
+            self.buttons = find_usb_buttons(led_indices=BUTTON_INTERFACES)
         if self.buttons:
             self.is_real = True
-            print("\n  %d USBButton(s) ready for control" % len(self.buttons))
+            print("\n  %d button(s) ready for LED control" % len(self.buttons))
+            if not self.bruteforce:
+                print("  Mapped to interfaces: %s" % BUTTON_INTERFACES)
             return True
         else:
             print("\n  No USBButtons could be opened")
@@ -300,22 +328,51 @@ def compute_pulse(confidence, elapsed):
     return base * factor
 
 
+def run_normal_test(controller):
+    """Quick test using only the configured BUTTON_INTERFACES."""
+    print("\n--- LED Test (configured buttons) ---")
+    colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+    for idx in range(1, controller.count() + 1):
+        color = colors[(idx - 1) % len(colors)]
+        print("  Button %d -> RGB(%d, %d, %d)" % (idx, color[0], color[1], color[2]))
+        controller.set_button_color(idx, *color)
+        time.sleep(1.0)
+    time.sleep(0.5)
+    print("  All white...")
+    controller.set_all_color(255, 255, 255)
+    time.sleep(1.0)
+    print("  Off.")
+    controller.set_all_color(0, 0, 0)
+    print("--- Test Complete ---\n")
+
+
 def run():
+    is_bruteforce = "--test" in sys.argv
+
     print("=" * 50)
     print("  CIMC Spirits - USBButton LED Controller")
     print("=" * 50)
     print("  App URL: %s" % APP_URL)
     print("  Poll interval: %ss" % POLL_INTERVAL)
+    if not is_bruteforce:
+        print("  LED interfaces: %s" % BUTTON_INTERFACES)
     print()
 
     print("Scanning for Ultimarc USBButton devices...")
-    controller = ButtonController()
+    controller = ButtonController(bruteforce=is_bruteforce)
     if not controller.connect():
         controller = SimulatedController()
         controller.connect()
 
     if controller.is_real:
-        run_led_test(controller)
+        if is_bruteforce:
+            run_led_test(controller)
+            print("Done. Update BUTTON_INTERFACES in the script with the")
+            print("interface numbers that lit up, then run without --test.")
+            controller.close()
+            return
+        else:
+            run_normal_test(controller)
 
     start_time = time.time()
     last_status = None
@@ -370,6 +427,7 @@ def run():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        APP_URL = sys.argv[1]
+    for arg in sys.argv[1:]:
+        if arg != "--test":
+            APP_URL = arg
     run()
