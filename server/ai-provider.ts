@@ -136,7 +136,18 @@ export async function analyzeConversation(
   modelPersona: string,
   conversationContext: string
 ): Promise<AnalysisResult> {
-  const systemPrompt = `You are ${modelName}. ${modelDescription}. ${modelPersona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`;
+  const systemPrompt = `You are ${modelName}. ${modelDescription}. ${modelPersona}
+
+Analyze if you should speak based on your expertise. Be very selective and conservative with your confidence score. Most conversations will NOT warrant your input. Use this scale:
+- 0-20: Topic is unrelated to your expertise or you have nothing meaningful to add (this should be the most common range)
+- 20-40: Topic is tangentially related but you don't have a strong insight
+- 40-60: Topic directly relates to your expertise and you have a specific, valuable point to make
+- 60-80: Rare - the conversation deeply engages your core philosophy and you have a profound contribution
+- 80-100: Extremely rare - reserved for once-in-a-session moments of extraordinary relevance
+
+Default to low confidence. Only score above 50 when you have a genuinely compelling and specific insight that would meaningfully advance the conversation.
+
+Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`;
   const userPrompt = `Recent conversation:\n${conversationContext}\n\nShould you contribute?`;
 
   const content = await chatCompletion(
