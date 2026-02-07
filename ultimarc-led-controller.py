@@ -440,6 +440,7 @@ def run_normal_test(controller):
 
 
 def run():
+    global BUTTON_INTERFACES
     is_bruteforce = "--test" in sys.argv
     is_remap = "--remap" in sys.argv
 
@@ -511,7 +512,6 @@ def run():
 
                     run_remap(None)
 
-                    global BUTTON_INTERFACES
                     controller = ButtonController()
                     if not controller.connect():
                         controller = SimulatedController()
