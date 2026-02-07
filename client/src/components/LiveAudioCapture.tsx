@@ -45,7 +45,6 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
   const [newSpeakerName, setNewSpeakerName] = useState("");
   const [showAddSpeaker, setShowAddSpeaker] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecordingRef = useRef(false);
@@ -95,64 +94,53 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
     }
   }, [roomId]);
 
+  const createRecorder = useCallback((stream: MediaStream) => {
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        chunks.push(e.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const audioBlob = new Blob(chunks, { type: "audio/webm" });
+      console.log(`[audio] onstop: ${chunks.length} chunks, blob ${audioBlob.size} bytes`);
+      sendAudioForTranscription(audioBlob);
+
+      if (isRecordingRef.current && streamRef.current) {
+        const next = createRecorder(streamRef.current);
+        next.start();
+        mediaRecorderRef.current = next;
+      }
+    };
+
+    return recorder;
+  }, [sendAudioForTranscription]);
+
   const harvestChunk = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state !== "recording") {
-      console.log(`[audio] harvestChunk skipped: recorder=${!!recorder}, state=${recorder?.state}`);
+      console.log(`[audio] harvestChunk skipped: state=${recorder?.state}`);
       return;
     }
-
-    const chunks = chunksRef.current;
-    console.log(`[audio] Harvesting: ${chunks.length} chunks, sizes: ${chunks.map(c => c.size).join(',')}`);
-
-    if (chunks.length === 0) {
-      console.log(`[audio] No chunks to harvest, skipping`);
-      return;
-    }
-
-    const audioBlob = new Blob(chunks, { type: "audio/webm" });
-    chunksRef.current = [];
-    console.log(`[audio] Created blob: ${audioBlob.size} bytes`);
-
+    console.log(`[audio] Stopping recorder to harvest chunk`);
     recorder.stop();
-
-    if (isRecordingRef.current && streamRef.current) {
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const newRecorder = new MediaRecorder(streamRef.current, { mimeType });
-      newRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-      newRecorder.start(1000);
-      mediaRecorderRef.current = newRecorder;
-    }
-
-    sendAudioForTranscription(audioBlob);
-  }, [sendAudioForTranscription]);
+  }, []);
 
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      chunksRef.current = [];
       isRecordingRef.current = true;
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(1000);
+      const recorder = createRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.start();
       setIsRecording(true);
       setTranscriptCount(0);
 
@@ -172,7 +160,7 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         variant: "destructive",
       });
     }
-  }, [harvestChunk, toast, activeSpeaker]);
+  }, [createRecorder, harvestChunk, toast, activeSpeaker]);
 
   const stopRecording = useCallback(() => {
     isRecordingRef.current = false;
@@ -187,22 +175,13 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
       recorder.stop();
     }
 
-    const chunks = chunksRef.current;
-    if (chunks.length > 0) {
-      const audioBlob = new Blob(chunks, { type: "audio/webm" });
-      chunksRef.current = [];
-      if (audioBlob.size >= 1000) {
-        sendAudioForTranscription(audioBlob);
-      }
-    }
-
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
 
     streamRef.current = null;
     setIsRecording(false);
-  }, [sendAudioForTranscription]);
+  }, []);
 
   useEffect(() => {
     return () => {
