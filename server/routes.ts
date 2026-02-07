@@ -283,9 +283,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Already rated" });
       }
 
-      // Find the analysis to get the model
-      const allAnalyses = await storage.getAnalysesByRoom(1);
-      const analysis = allAnalyses.find(a => a.id === analysisId);
+      const analysis = await storage.getAnalysisById(analysisId);
       if (!analysis) {
         return res.status(404).json({ error: "Analysis not found" });
       }
@@ -657,6 +655,241 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching latency summary:", error);
       res.status(500).json({ error: "Failed to fetch latency summary" });
+    }
+  });
+
+  // ============================================================
+  // INBOUND API - External bots can query and contribute
+  // ============================================================
+
+  // Get current conversation stream (recent entries)
+  app.get("/api/inbound/conversation", async (req, res) => {
+    try {
+      const roomId = req.query.roomId ? parseInt(req.query.roomId as string) : 1;
+      const limit = req.query.limit ? Math.min(parseInt(req.query.limit as string), 100) : 20;
+      const entries = await storage.getEntriesByRoom(roomId);
+      const recent = entries.slice(-limit);
+      res.json({
+        roomId,
+        count: recent.length,
+        entries: recent.map(e => ({
+          id: e.id,
+          speaker: e.speaker,
+          content: e.content,
+          timestamp: e.timestamp,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching inbound conversation:", error);
+      res.status(500).json({ error: "Failed to fetch conversation" });
+    }
+  });
+
+  // Get current philosopher statuses and confidence levels
+  app.get("/api/inbound/philosophers", async (req, res) => {
+    try {
+      const roomId = req.query.roomId ? parseInt(req.query.roomId as string) : 1;
+      const models = await storage.getAllAiModels();
+      const entries = await storage.getEntriesByRoom(roomId);
+      const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
+      const allAnalyses = await storage.getAnalysesByRoom(roomId);
+
+      const philosophers = models.map((model) => {
+          const modelAnalyses = allAnalyses.filter(a => a.modelId === model.id);
+          const latestActive = modelAnalyses
+            .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+          let effectiveConfidence = 0;
+          let proposedResponse = null;
+          if (latestActive) {
+            const analysisEntryId = latestActive.conversationEntryId || 0;
+            const messagesSince = latestEntryId - analysisEntryId;
+            const decayFactor = Math.max(0, 1 - (messagesSince * 0.15));
+            effectiveConfidence = Math.round(latestActive.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
+            if (effectiveConfidence > 50) {
+              proposedResponse = latestActive.proposedResponse;
+            }
+          }
+
+          return {
+            id: model.id,
+            name: model.name,
+            description: model.description,
+            color: model.color,
+            llmModel: model.llmModel,
+            confidence: effectiveConfidence,
+            multiplier: model.confidenceMultiplier,
+            hasResponse: effectiveConfidence > 50,
+            proposedResponse: effectiveConfidence > 50 ? proposedResponse : null,
+          };
+      });
+
+      res.json({
+        roomId,
+        philosophers: philosophers.sort((a, b) => b.confidence - a.confidence),
+      });
+    } catch (error) {
+      console.error("Error fetching inbound philosophers:", error);
+      res.status(500).json({ error: "Failed to fetch philosophers" });
+    }
+  });
+
+  // External bot submits a philosophical response into the conversation
+  app.post("/api/inbound/respond", async (req, res) => {
+    try {
+      const { speaker, content, roomId: reqRoomId } = req.body;
+      if (!speaker || !content) {
+        return res.status(400).json({ error: "speaker and content are required" });
+      }
+      const roomId = reqRoomId ? parseInt(reqRoomId) : 1;
+      const entry = await storage.createConversationEntry({
+        roomId,
+        speaker: String(speaker),
+        content: String(content),
+      });
+
+      // Trigger analysis from all philosophers on this new input
+      const models = await storage.getAllAiModels();
+      const entries = await storage.getEntriesByRoom(roomId);
+      const conversationContext = entries
+        .slice(-10)
+        .map((e) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      for (const model of models) {
+        try {
+          const llmModel = model.llmModel || "gpt-4o-mini";
+          const result = await logLatency(
+            "analysis", llmModel, getProvider(llmModel),
+            () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+            { roomId, modelId: model.id, metadata: { philosopherName: model.name } }
+          );
+          await storage.createModelAnalysis({
+            roomId,
+            modelId: model.id,
+            conversationEntryId: entry.id,
+            confidence: result.confidence || 0,
+            reasoning: result.analysis || "No analysis provided",
+            proposedResponse: result.response || null,
+            shouldSpeak: result.shouldSpeak || false,
+          });
+        } catch (err) {
+          console.error(`Analysis error for ${model.name}:`, err);
+        }
+      }
+
+      res.status(201).json({
+        entry: {
+          id: entry.id,
+          speaker: entry.speaker,
+          content: entry.content,
+          timestamp: entry.timestamp,
+        },
+        message: `Response from ${speaker} added to conversation. ${models.length} philosophers are now analyzing.`,
+      });
+    } catch (error) {
+      console.error("Error processing inbound response:", error);
+      res.status(500).json({ error: "Failed to process response" });
+    }
+  });
+
+  // ============================================================
+  // MOLTBOOK INTEGRATION - Post insights to moltbook.com
+  // ============================================================
+
+  app.post("/api/moltbook/post", async (req, res) => {
+    try {
+      const apiKey = process.env.MOLTBOOK_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({ error: "MOLTBOOK_API_KEY not configured" });
+      }
+
+      const { title, content, submolt } = req.body;
+      if (!title || !content) {
+        return res.status(400).json({ error: "title and content are required" });
+      }
+
+      const moltbookResponse = await fetch("https://www.moltbook.com/api/v1/posts", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          submolt: submolt || "general",
+          title,
+          content,
+        }),
+      });
+
+      const result = await moltbookResponse.json();
+      if (!moltbookResponse.ok) {
+        return res.status(moltbookResponse.status).json({ error: "Moltbook post failed", details: result });
+      }
+
+      res.json({ success: true, moltbook: result });
+    } catch (error) {
+      console.error("Error posting to Moltbook:", error);
+      res.status(500).json({ error: "Failed to post to Moltbook" });
+    }
+  });
+
+  // Post a specific philosopher's triggered insight to Moltbook
+  app.post("/api/moltbook/share-insight", async (req, res) => {
+    try {
+      const apiKey = process.env.MOLTBOOK_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({ error: "MOLTBOOK_API_KEY not configured" });
+      }
+
+      const { analysisId } = req.body;
+      if (!analysisId) {
+        return res.status(400).json({ error: "analysisId is required" });
+      }
+
+      const analysis = await storage.getAnalysisById(parseInt(analysisId));
+      if (!analysis || !analysis.proposedResponse) {
+        return res.status(404).json({ error: "Analysis not found or has no response" });
+      }
+
+      const model = await storage.getAiModel(analysis.modelId);
+      if (!model) {
+        return res.status(404).json({ error: "Philosopher not found" });
+      }
+
+      // Get recent conversation context for the post
+      const entries = await storage.getEntriesByRoom(analysis.roomId);
+      const recentContext = entries
+        .slice(-5)
+        .map(e => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      const title = `${model.name}: Philosophical Insight`;
+      const content = `**${model.name}** speaks:\n\n> ${analysis.proposedResponse}\n\n---\n*Context from the conversation:*\n\n${recentContext}\n\n---\n*Confidence: ${analysis.confidence}% | Model: ${model.llmModel || "gpt-4o-mini"} | via Philosophical Insight*`;
+
+      const moltbookResponse = await fetch("https://www.moltbook.com/api/v1/posts", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          submolt: "general",
+          title,
+          content,
+        }),
+      });
+
+      const result = await moltbookResponse.json();
+      if (!moltbookResponse.ok) {
+        return res.status(moltbookResponse.status).json({ error: "Moltbook post failed", details: result });
+      }
+
+      res.json({ success: true, moltbook: result });
+    } catch (error) {
+      console.error("Error sharing insight to Moltbook:", error);
+      res.status(500).json({ error: "Failed to share insight" });
     }
   });
 

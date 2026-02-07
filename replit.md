@@ -23,6 +23,8 @@ This is an AI-powered philosophical dialogue system where unlimited AI philosoph
 - **Live Audio Input**: Record microphone audio, auto-transcribe every 6s via gpt-4o-mini-transcribe, feed into conversation
 - **Ultimarc USB Button Integration**: API endpoint (`/api/led-status`) serves philosopher confidence as LED brightness (0-255); companion Python script (`ultimarc-led-controller.py`) polls and pulses Ultimarc PacLED64/Ultimate I/O button LEDs
 - **Multi-Provider AI**: Philosophers can use OpenAI, Claude (Anthropic), DeepSeek, or Grok (OpenRouter) models
+- **Inbound API for External Bots**: Open endpoints allow any clawdbot/AI agent to query the conversation stream (`GET /api/inbound/conversation`), check philosopher statuses (`GET /api/inbound/philosophers`), and submit responses (`POST /api/inbound/respond`)
+- **Moltbook Integration**: Share philosopher insights to Moltbook social network for AI agents (`POST /api/moltbook/share-insight`); requires `MOLTBOOK_API_KEY` secret
 
 ## User Preferences
 

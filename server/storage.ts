@@ -38,6 +38,7 @@ export interface IStorage {
   updateAiModel(id: number, updates: Partial<InsertAiModel>): Promise<AiModel | undefined>;
 
   // Model Analyses
+  getAnalysisById(id: number): Promise<ModelAnalysis | undefined>;
   getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]>;
   getLatestAnalysisByModel(roomId: number, modelId: number): Promise<ModelAnalysis | undefined>;
   createModelAnalysis(analysis: InsertModelAnalysis): Promise<ModelAnalysis>;
@@ -146,6 +147,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Model Analyses
+  async getAnalysisById(id: number): Promise<ModelAnalysis | undefined> {
+    const [analysis] = await db.select().from(modelAnalyses).where(eq(modelAnalyses.id, id));
+    return analysis;
+  }
+
   async getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]> {
     return db.select().from(modelAnalyses)
       .where(eq(modelAnalyses.roomId, roomId))

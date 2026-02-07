@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Share2 } from "lucide-react";
 import type { AiModel, ModelAnalysis } from "@shared/schema";
 
 interface AiModelPanelProps {
@@ -110,6 +110,18 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
     },
   });
 
+  const moltbookMutation = useMutation({
+    mutationFn: async (analysisId: number) => {
+      return apiRequest("POST", "/api/moltbook/share-insight", { analysisId });
+    },
+    onSuccess: () => {
+      toast({ title: "Shared to Moltbook", description: `${model.name}'s insight posted to Moltbook` });
+    },
+    onError: () => {
+      toast({ title: "Moltbook Error", description: "Failed to share to Moltbook. Check if API key is configured.", variant: "destructive" });
+    },
+  });
+
   const handleTrigger = () => {
     if (latestActiveAnalysis) {
       triggerMutation.mutate(latestActiveAnalysis.id);
@@ -119,6 +131,12 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   const handleRate = (rating: number) => {
     if (latestTriggeredAnalysis) {
       rateMutation.mutate({ analysisId: latestTriggeredAnalysis.id, rating });
+    }
+  };
+
+  const handleShareToMoltbook = () => {
+    if (latestTriggeredAnalysis) {
+      moltbookMutation.mutate(latestTriggeredAnalysis.id);
     }
   };
 
@@ -273,6 +291,17 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
                 Poor
               </Button>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2 gap-1"
+              onClick={handleShareToMoltbook}
+              disabled={moltbookMutation.isPending}
+              data-testid={`button-moltbook-${model.id}`}
+            >
+              <Share2 className="w-3 h-3" />
+              {moltbookMutation.isPending ? "Sharing..." : "Share to Moltbook"}
+            </Button>
           </div>
         )}
       </CardContent>
