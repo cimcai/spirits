@@ -48,7 +48,7 @@ except ImportError:
 # CONFIGURATION
 # ---------------------------------------------------------------------------
 
-APP_URL = "https://your-replit-app-url.replit.app"
+APP_URL = "https://cimc.io"
 
 POLL_INTERVAL = 0.1
 
