@@ -2,14 +2,36 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mic, MicOff, Radio } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Mic, MicOff, Radio, UserRound, Plus, X } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const CHUNK_INTERVAL_MS = 6000;
+const STORAGE_KEY = "philosophical-insight-speakers";
+const ACTIVE_SPEAKER_KEY = "philosophical-insight-active-speaker";
 
 interface LiveAudioCaptureProps {
   roomId?: number;
+}
+
+function loadSpeakers(): string[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return ["Joscha Bach", "Interviewer"];
+}
+
+function loadActiveSpeaker(speakers: string[]): string {
+  try {
+    const stored = localStorage.getItem(ACTIVE_SPEAKER_KEY);
+    if (stored && speakers.includes(stored)) return stored;
+  } catch {}
+  return speakers[0] || "Live Speaker";
 }
 
 export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
@@ -18,11 +40,25 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [transcriptCount, setTranscriptCount] = useState(0);
+  const [speakers, setSpeakers] = useState<string[]>(loadSpeakers);
+  const [activeSpeaker, setActiveSpeaker] = useState<string>(() => loadActiveSpeaker(loadSpeakers()));
+  const [newSpeakerName, setNewSpeakerName] = useState("");
+  const [showAddSpeaker, setShowAddSpeaker] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecordingRef = useRef(false);
+  const activeSpeakerRef = useRef(activeSpeaker);
+
+  useEffect(() => {
+    activeSpeakerRef.current = activeSpeaker;
+    localStorage.setItem(ACTIVE_SPEAKER_KEY, activeSpeaker);
+  }, [activeSpeaker]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(speakers));
+  }, [speakers]);
 
   const sendAudioForTranscription = useCallback(async (audioBlob: Blob) => {
     if (!roomId || audioBlob.size < 1000) return;
@@ -32,6 +68,7 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
       formData.append("roomId", roomId.toString());
+      formData.append("speaker", activeSpeakerRef.current);
 
       const response = await fetch("/api/audio/transcribe", {
         method: "POST",
@@ -110,7 +147,7 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
 
       toast({
         title: "Live Mic Active",
-        description: "Listening and auto-transcribing every few seconds.",
+        description: `Recording as "${activeSpeaker}". Auto-transcribing every ${CHUNK_INTERVAL_MS / 1000}s.`,
       });
     } catch (error) {
       console.error("Microphone error:", error);
@@ -120,7 +157,7 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         variant: "destructive",
       });
     }
-  }, [harvestChunk, toast]);
+  }, [harvestChunk, toast, activeSpeaker]);
 
   const stopRecording = useCallback(() => {
     isRecordingRef.current = false;
@@ -158,6 +195,25 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
     };
   }, []);
 
+  const addSpeaker = () => {
+    const name = newSpeakerName.trim();
+    if (name && !speakers.includes(name)) {
+      const updated = [...speakers, name];
+      setSpeakers(updated);
+      setNewSpeakerName("");
+      setShowAddSpeaker(false);
+    }
+  };
+
+  const removeSpeaker = (name: string) => {
+    if (speakers.length <= 1) return;
+    const updated = speakers.filter((s) => s !== name);
+    setSpeakers(updated);
+    if (activeSpeaker === name) {
+      setActiveSpeaker(updated[0]);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -167,9 +223,56 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Record your voice. Audio is automatically transcribed every {CHUNK_INTERVAL_MS / 1000}s and fed to the philosophers.
-        </p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground shrink-0">Speaker:</span>
+            {speakers.map((name) => (
+              <div key={name} className="flex items-center gap-0.5">
+                <Button
+                  variant={activeSpeaker === name ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveSpeaker(name)}
+                  className="text-xs toggle-elevate"
+                  data-testid={`button-speaker-${name.replace(/\s+/g, "-").toLowerCase()}`}
+                >
+                  {name}
+                  {speakers.length > 1 && (
+                    <X
+                      className="h-3 w-3 ml-1 text-muted-foreground"
+                      onClick={(e) => { e.stopPropagation(); removeSpeaker(name); }}
+                    />
+                  )}
+                </Button>
+              </div>
+            ))}
+            {showAddSpeaker ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={newSpeakerName}
+                  onChange={(e) => setNewSpeakerName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addSpeaker(); if (e.key === "Escape") setShowAddSpeaker(false); }}
+                  placeholder="Name..."
+                  className="w-28 text-xs"
+                  autoFocus
+                  data-testid="input-new-speaker-name"
+                />
+                <Button size="sm" onClick={addSpeaker} disabled={!newSpeakerName.trim()} data-testid="button-add-speaker-confirm">
+                  Add
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowAddSpeaker(true)}
+                data-testid="button-add-speaker"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
 
         {isRecording ? (
           <Button
@@ -207,7 +310,9 @@ export function LiveAudioCapture({ roomId }: LiveAudioCaptureProps) {
           <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/20">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-              <span className="text-xs text-destructive font-medium">Listening...</span>
+              <span className="text-xs text-destructive font-medium">
+                Recording as {activeSpeaker}
+              </span>
             </div>
             {isTranscribing && (
               <Badge variant="secondary" className="text-xs">Transcribing</Badge>

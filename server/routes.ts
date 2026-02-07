@@ -334,6 +334,7 @@ export async function registerRoutes(
 
       const file = new File([req.file.buffer], "audio.webm", { type: req.file.mimetype });
       const roomId = req.body?.roomId ? parseInt(req.body.roomId) : null;
+      const speakerName = req.body?.speaker?.trim() || "Live Speaker";
       
       const transcription = await logLatency(
         "transcription", "gpt-4o-mini-transcribe", "openai",
@@ -351,7 +352,7 @@ export async function registerRoutes(
       if (roomId) {
         entry = await storage.createConversationEntry({
           roomId,
-          speaker: "Live Speaker",
+          speaker: speakerName,
           content: text,
         });
 
@@ -770,7 +771,7 @@ export async function registerRoutes(
             modelId: model.id,
             conversationEntryId: entry.id,
             confidence: result.confidence || 0,
-            reasoning: result.analysis || "No analysis provided",
+            analysis: result.analysis || "No analysis provided",
             proposedResponse: result.response || null,
             shouldSpeak: result.shouldSpeak || false,
           });
