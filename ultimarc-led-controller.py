@@ -54,6 +54,7 @@ POLL_INTERVAL = 1.0
 ULTIMARC_VENDOR_ID = 0xD209
 
 ULTIMARC_PRODUCT_IDS = [
+    0x1200,  # USBButton (Ultimarc USB Button)
     0x1401,  # PacLED64
     0x0301,  # I-PAC Ultimate I/O
     0x0002,  # PacDrive
@@ -92,12 +93,29 @@ class UltimarcDevice:
 
     def connect(self):
         for pid in ULTIMARC_PRODUCT_IDS:
+            devices = hid.enumerate(ULTIMARC_VENDOR_ID, pid)
+            for dev_info in devices:
+                try:
+                    self.device = hid.device()
+                    path = dev_info.get("path")
+                    if path:
+                        self.device.open_path(path)
+                    else:
+                        self.device.open(ULTIMARC_VENDOR_ID, pid)
+                    self.product_id = pid
+                    name = self.device.get_product_string() or ("PID 0x%04X" % pid)
+                    iface = dev_info.get("interface_number", "?")
+                    print("Connected to Ultimarc device: %s (interface %s)" % (name, iface))
+                    return True
+                except Exception as e:
+                    self.device = None
+                    continue
             try:
                 self.device = hid.device()
                 self.device.open(ULTIMARC_VENDOR_ID, pid)
                 self.product_id = pid
-                name = self.device.get_product_string() or f"PID 0x{pid:04X}"
-                print(f"Connected to Ultimarc device: {name}")
+                name = self.device.get_product_string() or ("PID 0x%04X" % pid)
+                print("Connected to Ultimarc device: %s" % name)
                 return True
             except Exception:
                 self.device = None
