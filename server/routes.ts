@@ -1,13 +1,16 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertConversationEntrySchema } from "@shared/schema";
+import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
 import OpenAI from "openai";
+import multer from "multer";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -68,11 +71,11 @@ export async function registerRoutes(
       for (const model of models) {
         try {
           const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: model.llmModel || "gpt-4o-mini",
             messages: [
               {
                 role: "system",
-                content: `You are ${model.name}. ${model.description}. Analyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
+                content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
               },
               {
                 role: "user",
@@ -180,6 +183,128 @@ export async function registerRoutes(
     }
   });
 
+  // Update an AI model's configuration
+  app.patch("/api/models/:modelId", async (req, res) => {
+    try {
+      const modelId = parseInt(req.params.modelId);
+      
+      const validVoices = ["onyx", "nova", "echo", "alloy", "fable", "shimmer"];
+      const validModels = ["gpt-4o-mini", "gpt-4o", "gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5.2"];
+      
+      const updateSchema = insertAiModelSchema.partial();
+      const parsed = updateSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+      }
+
+      const updates = parsed.data;
+
+      if (updates.voice && !validVoices.includes(updates.voice)) {
+        return res.status(400).json({ error: `Invalid voice. Must be one of: ${validVoices.join(", ")}` });
+      }
+
+      if (updates.llmModel && !validModels.includes(updates.llmModel)) {
+        return res.status(400).json({ error: `Invalid model. Must be one of: ${validModels.join(", ")}` });
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+
+      const updated = await storage.updateAiModel(modelId, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating model:", error);
+      res.status(500).json({ error: "Failed to update model" });
+    }
+  });
+
+  // Audio transcription endpoint
+  app.post("/api/audio/transcribe", upload.single("audio"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+
+      const file = new File([req.file.buffer], "audio.webm", { type: req.file.mimetype });
+      
+      const transcription = await openai.audio.transcriptions.create({
+        file,
+        model: "gpt-4o-mini-transcribe",
+      });
+
+      const text = transcription.text?.trim();
+      if (!text) {
+        return res.status(200).json({ text: "", entry: null });
+      }
+
+      // If roomId provided, create a conversation entry
+      const roomId = req.body?.roomId ? parseInt(req.body.roomId) : null;
+      let entry = null;
+
+      if (roomId) {
+        entry = await storage.createConversationEntry({
+          roomId,
+          speaker: "Live Speaker",
+          content: text,
+        });
+
+        // Trigger AI analysis for all models
+        const models = await storage.getAllAiModels();
+        const allEntries = await storage.getEntriesByRoom(roomId);
+        const conversationContext = allEntries
+          .slice(-10)
+          .map((e) => `${e.speaker}: ${e.content}`)
+          .join("\n");
+
+        for (const model of models) {
+          try {
+            const analysisResponse = await openai.chat.completions.create({
+              model: model.llmModel || "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
+                },
+                {
+                  role: "user",
+                  content: `Recent conversation:\n${conversationContext}\n\nShould you contribute?`
+                }
+              ],
+              response_format: { type: "json_object" },
+            });
+
+            const analysisContent = analysisResponse.choices[0]?.message?.content;
+            if (analysisContent) {
+              const result = JSON.parse(analysisContent);
+              await storage.createModelAnalysis({
+                roomId,
+                modelId: model.id,
+                conversationEntryId: entry.id,
+                analysis: result.analysis || "No analysis provided",
+                shouldSpeak: result.shouldSpeak || false,
+                confidence: result.confidence || 0,
+                proposedResponse: result.response || null,
+                isTriggered: false,
+              });
+            }
+          } catch (analysisError) {
+            console.error(`Error analyzing with model ${model.name}:`, analysisError);
+          }
+        }
+      }
+
+      res.json({ text, entry });
+    } catch (error) {
+      console.error("Error transcribing audio:", error);
+      res.status(500).json({ error: "Failed to transcribe audio" });
+    }
+  });
+
   // Get analyses for a room
   app.get("/api/rooms/:roomId/analyses", async (req, res) => {
     try {
@@ -259,11 +384,11 @@ export async function registerRoutes(
       for (const model of models) {
         try {
           const analysisResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: model.llmModel || "gpt-4o-mini",
             messages: [
               {
                 role: "system",
-                content: `You are ${model.name}. ${model.description}. Analyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
+                content: `You are ${model.name}. ${model.description}. ${model.persona}\n\nAnalyze if you should speak based on your expertise. Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`
               },
               {
                 role: "user",

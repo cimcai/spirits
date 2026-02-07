@@ -6,6 +6,8 @@ import { AiModelPanel } from "@/components/AiModelPanel";
 import { CallLog } from "@/components/CallLog";
 import { SimulationControls } from "@/components/SimulationControls";
 import { MostInsightfulComment } from "@/components/MostInsightfulComment";
+import { ModelConfigPanel } from "@/components/ModelConfigPanel";
+import { LiveAudioCapture } from "@/components/LiveAudioCapture";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -178,7 +180,7 @@ export default function Dashboard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             text: latestActiveAnalysis.proposedResponse,
-            voice: modelIndex === 0 ? "onyx" : modelIndex === 1 ? "nova" : "echo"
+            voice: model.voice || "alloy"
           }),
         });
         
@@ -324,7 +326,9 @@ export default function Dashboard() {
               voiceEnabled={voiceEnabled}
               onVoiceToggle={setVoiceEnabled}
             />
+            <LiveAudioCapture roomId={room?.id} />
             <MostInsightfulComment calls={calls} models={models} />
+            <ModelConfigPanel models={models} />
             <CallLog calls={calls} models={models} />
           </div>
         </div>

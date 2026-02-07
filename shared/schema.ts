@@ -60,6 +60,8 @@ export const aiModels = pgTable("ai_models", {
   triggerThreshold: integer("trigger_threshold").default(3).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   color: text("color").default("#6366f1").notNull(),
+  voice: text("voice").default("alloy").notNull(),
+  llmModel: text("llm_model").default("gpt-4o-mini").notNull(),
 });
 
 export const insertAiModelSchema = createInsertSchema(aiModels).omit({

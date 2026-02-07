@@ -33,6 +33,7 @@ export interface IStorage {
   getAiModel(id: number): Promise<AiModel | undefined>;
   getAllAiModels(): Promise<AiModel[]>;
   createAiModel(model: InsertAiModel): Promise<AiModel>;
+  updateAiModel(id: number, updates: Partial<InsertAiModel>): Promise<AiModel | undefined>;
 
   // Model Analyses
   getAnalysesByRoom(roomId: number): Promise<ModelAnalysis[]>;
@@ -125,6 +126,11 @@ export class DatabaseStorage implements IStorage {
   async createAiModel(model: InsertAiModel): Promise<AiModel> {
     const [created] = await db.insert(aiModels).values(model).returning();
     return created;
+  }
+
+  async updateAiModel(id: number, updates: Partial<InsertAiModel>): Promise<AiModel | undefined> {
+    const [updated] = await db.update(aiModels).set(updates).where(eq(aiModels.id, id)).returning();
+    return updated;
   }
 
   // Model Analyses

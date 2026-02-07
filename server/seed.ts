@@ -29,6 +29,8 @@ export async function seedDatabase() {
         triggerThreshold: 6,
         isActive: true,
         color: "#10b981",
+        voice: "onyx",
+        llmModel: "gpt-4o-mini",
       },
       {
         name: "Existentialist Thinker",
@@ -41,6 +43,8 @@ export async function seedDatabase() {
         triggerThreshold: 5,
         isActive: true,
         color: "#6366f1",
+        voice: "nova",
+        llmModel: "gpt-4o-mini",
       },
       {
         name: "Socratic Questioner",
@@ -53,6 +57,8 @@ export async function seedDatabase() {
         triggerThreshold: 7,
         isActive: true,
         color: "#f59e0b",
+        voice: "echo",
+        llmModel: "gpt-4o-mini",
       },
     ]);
     console.log("Seeded philosophical AI models");
