@@ -144,14 +144,21 @@ def find_usb_buttons():
             unique_devices.append(dev)
 
     print("Found %d USBButton HID interface(s)" % len(unique_devices))
+    for i, dev in enumerate(unique_devices):
+        iface = dev.get("interface_number", "?")
+        usage = dev.get("usage", "?")
+        usage_page = dev.get("usage_page", "?")
+        print("  [%d] interface=%s usage_page=0x%s usage=0x%s" % (
+            i, iface,
+            ("%04X" % usage_page) if isinstance(usage_page, int) else str(usage_page),
+            ("%04X" % usage) if isinstance(usage, int) else str(usage),
+        ))
 
     buttons = []
     for i, dev_info in enumerate(unique_devices):
         btn = USBButtonDevice(dev_info["path"], i + 1)
         if btn.connect():
             buttons.append(btn)
-        if len(buttons) >= 3:
-            break
 
     return buttons
 
@@ -218,62 +225,43 @@ class SimulatedController:
 
 def run_led_test(controller):
     print("\n--- LED Test Sequence ---")
-    print("Cycling colors on %d button(s)...\n" % controller.count())
+    print("Testing %d interface(s) one at a time...\n" % controller.count())
+    print("Watch which physical buttons light up for each number.\n")
 
     test_colors = [
-        ("Red",     255, 0,   0),
-        ("Green",   0,   255, 0),
-        ("Blue",    0,   0,   255),
-        ("Yellow",  255, 255, 0),
-        ("Cyan",    0,   255, 255),
-        ("Magenta", 255, 0,   255),
-        ("White",   255, 255, 255),
-    ]
-
-    hold_time = 0.5
-    fade_steps = 10
-    fade_time = 0.03
-
-    for color_name, r, g, b in test_colors:
-        print("  %s" % color_name)
-        for step in range(fade_steps):
-            factor = (step + 1) / fade_steps
-            controller.set_all_color(
-                int(r * factor),
-                int(g * factor),
-                int(b * factor),
-            )
-            time.sleep(fade_time)
-        time.sleep(hold_time)
-
-    print("\n  Chase pattern...")
-    chase_colors = [
         (255, 0, 0),
         (0, 255, 0),
         (0, 0, 255),
     ]
-    for _round in range(3):
-        for idx in range(1, controller.count() + 1):
-            for other_idx in range(1, controller.count() + 1):
-                if other_idx == idx:
-                    color = chase_colors[(idx - 1) % len(chase_colors)]
-                    controller.set_button_color(other_idx, *color)
-                else:
-                    controller.set_button_color(other_idx, 0, 0, 0)
-            time.sleep(0.2)
+
+    controller.set_all_color(0, 0, 0)
+    time.sleep(0.3)
+
+    for idx in range(1, controller.count() + 1):
+        color = test_colors[(idx - 1) % len(test_colors)]
+        print("  Interface %d -> setting to RGB(%d, %d, %d)" % (idx, color[0], color[1], color[2]))
+        controller.set_button_color(idx, *color)
+        time.sleep(1.0)
+        controller.set_button_color(idx, 0, 0, 0)
+        time.sleep(0.3)
+
+    print("\n  Now lighting all at once (white)...")
+    controller.set_all_color(255, 255, 255)
+    time.sleep(1.5)
 
     print("  Fading out...\n")
-    for step in range(fade_steps, -1, -1):
-        factor = step / fade_steps
+    for step in range(10, -1, -1):
+        factor = step / 10.0
         controller.set_all_color(
             int(255 * factor),
             int(255 * factor),
             int(255 * factor),
         )
-        time.sleep(fade_time)
+        time.sleep(0.03)
 
     print("--- LED Test Complete ---")
-    print("If you saw colors cycle on your buttons, hardware is working!\n")
+    print("Note which interface numbers lit up which physical buttons.")
+    print("You may need to update BUTTON_INTERFACES below to match.\n")
 
 # ---------------------------------------------------------------------------
 # Main loop
