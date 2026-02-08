@@ -27,6 +27,8 @@ export default function Dashboard() {
     return saved !== null ? JSON.parse(saved) : true;
   });
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSeenCallIdRef = useRef<number>(0);
+  const ttsPlayingRef = useRef<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem("voiceEnabled", JSON.stringify(voiceEnabled));
@@ -53,6 +55,7 @@ export default function Dashboard() {
   const { data: calls = [] } = useQuery<OutboundCall[]>({
     queryKey: ["/api/rooms", room?.id, "calls"],
     enabled: !!room?.id,
+    refetchInterval: 3000,
   });
 
   const generateDialogueMutation = useMutation({
@@ -217,6 +220,60 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [triggerPhilosopherById, top3ModelIds]);
 
+  // Auto-play TTS when new philosopher responses appear (from USB buttons or external triggers)
+  useEffect(() => {
+    if (!voiceEnabled || calls.length === 0) return;
+
+    const maxCallId = Math.max(...calls.map(c => c.id));
+
+    if (lastSeenCallIdRef.current === 0) {
+      lastSeenCallIdRef.current = maxCallId;
+      return;
+    }
+
+    const newCalls = calls
+      .filter(c => c.id > lastSeenCallIdRef.current)
+      .sort((a, b) => a.id - b.id);
+
+    if (newCalls.length === 0) return;
+
+    lastSeenCallIdRef.current = maxCallId;
+
+    if (ttsPlayingRef.current) return;
+
+    const playQueue = async () => {
+      ttsPlayingRef.current = true;
+      for (const call of newCalls) {
+        if (!call.responseContent) continue;
+        const model = models.find(m => m.id === call.modelId);
+        const voice = model?.voice || "alloy";
+        try {
+          const audioResponse = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: call.responseContent, voice }),
+          });
+          if (audioResponse.ok) {
+            const audioBlob = await audioResponse.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            await new Promise<void>((resolve) => {
+              audio.onended = () => resolve();
+              audio.onerror = () => resolve();
+              audio.play().catch(() => resolve());
+            });
+            URL.revokeObjectURL(audioUrl);
+          }
+        } catch {
+          // TTS failed, continue
+        }
+      }
+      ttsPlayingRef.current = false;
+    };
+
+    playQueue();
+  }, [calls, voiceEnabled, models]);
+
   const getModelAnalyses = (modelId: number) => {
     return analyses.filter((a) => a.modelId === modelId);
   };
@@ -279,8 +336,8 @@ export default function Dashboard() {
           {entries.length > 0 && (
             <div className="px-4 pt-2 pb-1">
               <p className="text-xs text-muted-foreground truncate" data-testid="text-mobile-latest">
-                <span className="font-semibold">{entries[entries.length - 1].speakerName}:</span>{" "}
-                {entries[entries.length - 1].text}
+                <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
+                {entries[entries.length - 1].content}
               </p>
             </div>
           )}
