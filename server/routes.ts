@@ -4,6 +4,93 @@ import { storage } from "./storage";
 import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
+import WebSocket from "ws";
+
+const PERSONAPLEX_HOST = "cjuzwdji4o9zi2-8998.proxy.runpod.net";
+
+const PERSONAPLEX_VOICE_MAP: Record<string, string> = {
+  onyx: "NATM0.pt",
+  nova: "NATF0.pt",
+  echo: "NATM1.pt",
+  fable: "NATF1.pt",
+  shimmer: "NATF2.pt",
+  alloy: "NATF3.pt",
+};
+
+function personaplexTTS(text: string, voice: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const voiceFile = PERSONAPLEX_VOICE_MAP[voice] || "NATF0.pt";
+    const url = new URL(`wss://${PERSONAPLEX_HOST}/api/chat`);
+    url.searchParams.append("text_temperature", "0.3");
+    url.searchParams.append("text_topk", "5");
+    url.searchParams.append("audio_temperature", "0.8");
+    url.searchParams.append("audio_topk", "25");
+    url.searchParams.append("pad_mult", "0");
+    url.searchParams.append("text_seed", String(Math.round(1e6 * Math.random())));
+    url.searchParams.append("audio_seed", String(Math.round(1e6 * Math.random())));
+    url.searchParams.append("repetition_penalty_context", "150");
+    url.searchParams.append("repetition_penalty", "1.1");
+    url.searchParams.append("text_prompt", `Repeat the following text exactly as written: ${text}`);
+    url.searchParams.append("voice_prompt", voiceFile);
+
+    const ws = new WebSocket(url.toString());
+    ws.binaryType = "arraybuffer";
+    const audioChunks: Buffer[] = [];
+    let handshakeDone = false;
+    const timeout = setTimeout(() => {
+      ws.close();
+      if (audioChunks.length > 0) {
+        resolve(Buffer.concat(audioChunks));
+      } else {
+        reject(new Error("PersonaPlex TTS timed out"));
+      }
+    }, 15000);
+
+    ws.on("open", () => {
+      const handshake = new Uint8Array([0, 0, 0]);
+      ws.send(handshake);
+    });
+
+    ws.on("message", (data: ArrayBuffer) => {
+      const msg = new Uint8Array(data as ArrayBuffer);
+      const type = msg[0];
+      const payload = msg.slice(1);
+
+      if (type === 0) {
+        handshakeDone = true;
+        const encoded = new TextEncoder().encode(text);
+        const textMsg = new Uint8Array(1 + encoded.length);
+        textMsg[0] = 2;
+        textMsg.set(encoded, 1);
+        ws.send(textMsg);
+        const endTurn = new Uint8Array([3, 1]);
+        ws.send(endTurn);
+      } else if (type === 1 && handshakeDone) {
+        audioChunks.push(Buffer.from(payload));
+      } else if (type === 3) {
+        clearTimeout(timeout);
+        ws.close();
+        if (audioChunks.length > 0) {
+          resolve(Buffer.concat(audioChunks));
+        } else {
+          reject(new Error("PersonaPlex returned no audio"));
+        }
+      }
+    });
+
+    ws.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    ws.on("close", () => {
+      clearTimeout(timeout);
+      if (audioChunks.length > 0) {
+        resolve(Buffer.concat(audioChunks));
+      }
+    });
+  });
+}
 
 async function logLatency(
   operation: string,
@@ -789,15 +876,38 @@ export async function registerRoutes(
     }
   });
 
-  // Text-to-Speech endpoint
+  // Text-to-Speech endpoint — tries PersonaPlex first (faster), falls back to OpenAI
   app.post("/api/tts", async (req, res) => {
     try {
-      const { text, voice = "alloy" } = req.body;
+      const { text, voice = "alloy", provider } = req.body;
       
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Text is required" });
       }
 
+      // Try PersonaPlex first unless explicitly requesting OpenAI
+      if (provider !== "openai") {
+        try {
+          const start = Date.now();
+          const audioBuffer = await personaplexTTS(text, voice);
+          const latencyMs = Date.now() - start;
+          console.log(`[TTS] PersonaPlex completed in ${latencyMs}ms, ${audioBuffer.length} bytes`);
+          storage.createLatencyLog({
+            operation: "tts", model: "personaplex", service: "personaplex",
+            latencyMs, success: true, roomId: null, modelId: null, metadata: JSON.stringify({ voice, textLength: text.length }),
+          });
+          res.set({
+            "Content-Type": "audio/wav",
+            "Content-Length": audioBuffer.length.toString(),
+            "X-TTS-Provider": "personaplex",
+          });
+          return res.send(audioBuffer);
+        } catch (err: any) {
+          console.log(`[TTS] PersonaPlex failed (${err.message}), falling back to OpenAI`);
+        }
+      }
+
+      // Fallback: OpenAI gpt-audio
       const response = await logLatency(
         "tts", "gpt-audio", "openai",
         () => openai.chat.completions.create({
@@ -823,6 +933,7 @@ export async function registerRoutes(
       res.set({
         "Content-Type": "audio/wav",
         "Content-Length": audioBuffer.length.toString(),
+        "X-TTS-Provider": "openai",
       });
       res.send(audioBuffer);
     } catch (error) {
