@@ -57,6 +57,7 @@ export async function registerRoutes(
           getConversation: { method: "GET", path: "/api/inbound/conversation", description: "Fetch recent conversation entries", params: { roomId: "number (default 1)", limit: "number (default 20, max 100)" } },
           getPhilosophers: { method: "GET", path: "/api/inbound/philosophers", description: "Get philosopher statuses and confidence levels", params: { roomId: "number (default 1)" } },
           respond: { method: "POST", path: "/api/inbound/respond", description: "Submit a response (queued for admin moderation before entering conversation)", body: { speaker: "string (required)", content: "string (required)", roomId: "number (default 1)", source: "string (default 'api')" } },
+          ask: { method: "POST", path: "/api/inbound/ask", description: "Submit a deep question and receive responses from AI philosophers. Each philosopher analyzes the question through their unique lens and provides a response.", body: { question: "string (required)", roomId: "number (default 1)", philosopherIds: "number[] (optional - specific philosopher IDs to ask; defaults to all active)", includeInConversation: "boolean (default true - whether to add the question and responses to the live conversation)" } },
         },
         conversation: {
           addEntry: { method: "POST", path: "/api/rooms/:roomId/entries", description: "Add entry to specific room", body: { speaker: "string", content: "string" } },
@@ -963,6 +964,118 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error processing inbound response:", error);
       res.status(500).json({ error: "Failed to process response" });
+    }
+  });
+
+  app.post("/api/inbound/ask", async (req, res) => {
+    try {
+      const { question, roomId: reqRoomId, philosopherIds, includeInConversation = true } = req.body;
+      if (!question || typeof question !== "string" || question.trim().length === 0) {
+        return res.status(400).json({ error: "question is required (non-empty string)" });
+      }
+
+      const roomId = reqRoomId ? parseInt(reqRoomId) : 1;
+      const room = await storage.getRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const allModels = await storage.getAllAiModels();
+      let targetModels = allModels.filter(m => m.isActive);
+
+      if (philosopherIds && Array.isArray(philosopherIds) && philosopherIds.length > 0) {
+        const idSet = new Set(philosopherIds.map(Number));
+        targetModels = targetModels.filter(m => idSet.has(m.id));
+        if (targetModels.length === 0) {
+          return res.status(404).json({ error: "No active philosophers found with the specified IDs" });
+        }
+      }
+
+      if (includeInConversation) {
+        await storage.createConversationEntry({
+          roomId,
+          speaker: "Question",
+          content: question.trim(),
+        });
+      }
+
+      const existingEntries = await storage.getEntriesByRoom(roomId);
+      const recentContext = existingEntries.slice(-10)
+        .map((e: { speaker: string; content: string }) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      const questionContext = recentContext
+        ? `${recentContext}\n\nDeep Question posed: ${question.trim()}`
+        : `Deep Question posed: ${question.trim()}`;
+
+      const responses = await Promise.allSettled(
+        targetModels.map(async (model) => {
+          const llmModel = model.llmModel || "gpt-4o-mini";
+          const result = await logLatency(
+            "analysis", llmModel, getProvider(llmModel),
+            () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, questionContext),
+            { roomId, modelId: model.id, metadata: { philosopherName: model.name, source: "inbound-ask" } }
+          );
+
+          const responseText = result.response || "I have nothing to add at this time.";
+
+          const analysis = await storage.createModelAnalysis({
+            roomId,
+            modelId: model.id,
+            conversationEntryId: existingEntries.length > 0 ? existingEntries[existingEntries.length - 1].id : 0,
+            confidence: result.confidence || 50,
+            analysis: result.analysis || "Response to deep question",
+            shouldSpeak: true,
+            proposedResponse: responseText,
+            isTriggered: true,
+          });
+
+          if (includeInConversation) {
+            await storage.createConversationEntry({
+              roomId,
+              speaker: model.name,
+              content: responseText,
+            });
+
+            await storage.createOutboundCall({
+              roomId,
+              modelId: model.id,
+              triggerReason: `Deep question: ${question.trim().substring(0, 100)}`,
+              responseContent: responseText,
+              status: "completed",
+            });
+          }
+
+          return {
+            philosopherId: model.id,
+            philosopherName: model.name,
+            color: model.color,
+            response: responseText,
+            confidence: result.confidence || 50,
+            analysis: result.analysis || "",
+          };
+        })
+      );
+
+      const successful = responses
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+        .map(r => r.value);
+      const failed = responses
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r, i) => ({ philosopherId: targetModels[i]?.id, philosopherName: targetModels[i]?.name, error: String(r.reason) }));
+
+      console.log(`[inbound/ask] Question "${question.trim().substring(0, 60)}..." — ${successful.length} responses, ${failed.length} failures`);
+
+      res.status(200).json({
+        question: question.trim(),
+        roomId,
+        includedInConversation: includeInConversation,
+        responses: successful,
+        ...(failed.length > 0 ? { errors: failed } : {}),
+      });
+    } catch (error) {
+      console.error("Error processing inbound ask:", error);
+      res.status(500).json({ error: "Failed to process question" });
     }
   });
 
