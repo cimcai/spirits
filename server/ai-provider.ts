@@ -147,7 +147,9 @@ Analyze if you should speak based on your expertise. Be very selective and conse
 
 Default to low confidence. Only score above 50 when you have a genuinely compelling and specific insight that would meaningfully advance the conversation.
 
-Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say"}`;
+IMPORTANT: Your "response" MUST be 20 words or fewer. Be concise and impactful — distill your wisdom into a single powerful statement.
+
+Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say (max 20 words)"}`;
   const userPrompt = `Recent conversation:\n${conversationContext}\n\nShould you contribute?`;
 
   const content = await chatCompletion(
