@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ThumbsUp, ThumbsDown, Share2 } from "lucide-react";
-import type { AiModel, ModelAnalysis } from "@shared/schema";
+import type { AiModel, ModelAnalysis, ResponseRating } from "@shared/schema";
 
 interface AiModelPanelProps {
   model: AiModel;
@@ -21,6 +21,14 @@ interface AiModelPanelProps {
 export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true, buttonIndex }: AiModelPanelProps) {
   const { toast } = useToast();
   const [ratedAnalysisIds, setRatedAnalysisIds] = useState<Set<number>>(new Set());
+
+  const { data: ratings = [] } = useQuery<ResponseRating[]>({
+    queryKey: ["/api/models", model.id, "ratings"],
+  });
+
+  const thumbsUp = ratings.filter(r => r.rating === 1).length;
+  const thumbsDown = ratings.filter(r => r.rating === -1).length;
+  const totalRatings = thumbsUp + thumbsDown;
   
   const latestActiveAnalysis = analyses
     .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
@@ -94,6 +102,7 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
     onSuccess: (_, variables) => {
       setRatedAnalysisIds(prev => new Set(prev).add(variables.analysisId));
       queryClient.invalidateQueries({ queryKey: ["/api/models"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/models", model.id, "ratings"] });
       toast({
         title: variables.rating === 1 ? "Rated positively" : "Rated negatively",
         description: variables.rating === -1 
@@ -170,6 +179,12 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
                 <Badge variant="secondary" className="text-xs" data-testid={`badge-multiplier-${model.id}`}>
                   {Math.round(multiplier * 100)}%
                 </Badge>
+              )}
+              {totalRatings > 0 && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-ratings-${model.id}`}>
+                  <ThumbsUp className="w-3 h-3" />{thumbsUp}
+                  <ThumbsDown className="w-3 h-3 ml-1" />{thumbsDown}
+                </span>
               )}
             </div>
             <p className="text-xs text-muted-foreground truncate">{model.description}</p>
