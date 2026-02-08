@@ -116,6 +116,47 @@ export async function registerRoutes(
     }
   });
 
+  // Export full transcript for a room
+  app.get("/api/rooms/:roomId/export", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const room = await storage.getRoom(roomId);
+      if (!room) return res.status(404).json({ error: "Room not found" });
+
+      const entries = await storage.getEntriesByRoom(roomId);
+      const format = (req.query.format as string) || "txt";
+
+      if (format === "json") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.json"`);
+        return res.json({
+          room: room.name,
+          exportedAt: new Date().toISOString(),
+          entryCount: entries.length,
+          entries: entries.map(e => ({
+            speaker: e.speaker,
+            content: e.content,
+            timestamp: e.timestamp,
+          })),
+        });
+      }
+
+      // Default: plain text
+      const lines = entries.map(e => {
+        const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
+        return `[${time}] ${e.speaker}: ${e.content}`;
+      });
+      const text = `Transcript: ${room.name}\nExported: ${new Date().toISOString()}\nEntries: ${entries.length}\n${"—".repeat(40)}\n\n${lines.join("\n")}`;
+
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.txt"`);
+      return res.send(text);
+    } catch (error) {
+      console.error("Error exporting transcript:", error);
+      res.status(500).json({ error: "Failed to export transcript" });
+    }
+  });
+
   // Add a conversation entry and trigger AI analysis
   app.post("/api/rooms/:roomId/entries", async (req, res) => {
     try {
