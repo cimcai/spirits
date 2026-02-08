@@ -356,29 +356,28 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Top-3 philosophers side by side + latest message */}
+      {/* Pulsing philosopher orbs left to right + latest message */}
       {models.length > 0 && (
         <div className="sticky top-[65px] z-40 bg-background border-b">
           <div className="max-w-7xl mx-auto px-4 lg:px-6">
-            <div className="flex items-center justify-around py-3">
-              {top3ModelIds.map((modelId, idx) => {
-                const model = models.find(m => m.id === modelId);
-                if (!model) return null;
+            <div className="flex items-center gap-6 py-3 overflow-x-auto">
+              {models.map((model) => {
                 const conf = getEffectiveConfidence(model);
                 const isActive = conf > 50;
                 const pulseIntensity = conf / 100;
-                const orbSize = window.innerWidth >= 1024 ? 56 : 40;
+                const btnIdx = top3ModelIds.indexOf(model.id);
+                const orbSize = 20 + Math.round(pulseIntensity * 40);
                 const glowSize = 4 + (pulseIntensity * 18);
                 const animDur = 2 - (pulseIntensity * 1.2);
                 return (
                   <button
-                    key={modelId}
-                    data-testid={`orb-button-${idx + 1}`}
-                    onClick={() => isActive && triggerPhilosopherById(modelId)}
-                    disabled={!isActive}
-                    className="flex flex-col items-center gap-1 disabled:opacity-30"
+                    key={model.id}
+                    data-testid={btnIdx >= 0 ? `orb-button-${btnIdx + 1}` : `orb-button-${model.id}`}
+                    onClick={() => triggerPhilosopherById(model.id)}
+                    className="flex flex-col items-center gap-1 flex-shrink-0"
+                    style={{ opacity: isActive ? 1 : 0.3 }}
                   >
-                    <div className="relative flex items-center justify-center flex-shrink-0">
+                    <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
                       {isActive && (
                         <div
                           className="absolute rounded-full"
@@ -397,20 +396,22 @@ export default function Dashboard() {
                           width: orbSize,
                           height: orbSize,
                           backgroundColor: isActive ? model.color : 'transparent',
-                          border: isActive ? 'none' : '2px solid hsl(var(--border))',
+                          border: isActive ? 'none' : `2px solid hsl(var(--border))`,
                           transition: 'all 0.3s ease',
                         }}
                       >
-                        <span className="text-sm font-bold" style={{ color: isActive ? '#000' : 'hsl(var(--muted-foreground))' }}>
-                          {idx + 1}
-                        </span>
+                        {btnIdx >= 0 && (
+                          <span className="text-xs font-bold" style={{ color: isActive ? '#000' : 'hsl(var(--muted-foreground))' }}>
+                            {btnIdx + 1}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                    <span className="text-[10px] text-muted-foreground truncate max-w-[80px]">
                       {model.name}
                     </span>
-                    {isActive && (
-                      <span className="text-xs font-mono text-muted-foreground">{conf}%</span>
+                    {conf > 0 && (
+                      <span className="text-[10px] font-mono text-muted-foreground">{conf}%</span>
                     )}
                   </button>
                 );
@@ -418,7 +419,7 @@ export default function Dashboard() {
             </div>
             {entries.length > 0 && (
               <div className="pb-3 -mt-1">
-                <p className="text-sm text-muted-foreground text-center truncate" data-testid="text-latest-message">
+                <p className="text-sm text-muted-foreground truncate" data-testid="text-latest-message">
                   <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
                   {entries[entries.length - 1].content}
                 </p>
