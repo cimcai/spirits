@@ -89,8 +89,13 @@ def hex_to_rgb(hex_color):
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 
-def scale_rgb(rgb, factor):
-    return tuple(max(0, min(255, int(c * factor))) for c in rgb)
+def scale_rgb(rgb, factor, quantize=4):
+    """Scale RGB by factor. Quantize to reduce redundant LED writes during pulsing.
+    quantize=4 means 64 brightness levels (still visually smooth)."""
+    def q(v):
+        v = max(0, min(255, int(v * factor)))
+        return (v // quantize) * quantize
+    return (q(rgb[0]), q(rgb[1]), q(rgb[2]))
 
 # ---------------------------------------------------------------------------
 # USBButton device - each button is a separate HID device with RGB LED
@@ -257,8 +262,13 @@ class PhysicalButton:
     def __init__(self, button_num, interface_devices):
         self.button_num = button_num
         self.devices = interface_devices  # list of USBButtonDevice
+        self._last_rgb = None  # track last sent color to avoid redundant writes
 
     def set_color(self, r, g, b):
+        rgb = (int(r), int(g), int(b))
+        if rgb == self._last_rgb:
+            return  # skip redundant write
+        self._last_rgb = rgb
         for dev in self.devices:
             dev.set_color(r, g, b)
 
