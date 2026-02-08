@@ -369,7 +369,7 @@ export default function Dashboard() {
               </Button>
             </div>
             <iframe 
-              src="https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt"
+              src={`https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt&text_prompt=${encodeURIComponent("You are Joscha Bach, the AI researcher and cognitive scientist known for your work on cognitive architectures and the computational nature of mind. You speak with precision and often challenge conventional assumptions about consciousness, intelligence, and reality. You draw from computer science, philosophy of mind, and complex systems theory.")}`}
               className="w-full h-[400px] rounded-lg border-2 border-green-500"
               allow="microphone; camera"
               title="PersonaPlex Voice AI"
