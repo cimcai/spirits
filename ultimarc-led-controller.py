@@ -558,16 +558,120 @@ def run_normal_test(controller):
     print("--- Test Complete ---\n")
 
 
+def run_diagnose():
+    """Test each LED method one at a time so user can identify which one works.
+    No network calls needed — purely local hardware test."""
+    global WORKING_METHOD
+
+    print("\n" + "=" * 50)
+    print("  LED METHOD DIAGNOSTIC")
+    print("=" * 50)
+    print("  This tests each LED control method individually.")
+    print("  Watch your button and note which method lights it up.")
+    print("  We'll test with solid RED, then GREEN, then BLUE.\n")
+
+    unique_devices = enumerate_usb_buttons()
+    if not unique_devices:
+        print("No USBButton devices found!")
+        return
+
+    print("Found %d HID interfaces" % len(unique_devices))
+
+    test_iface = BUTTON_INTERFACES[0] if BUTTON_INTERFACES else 0
+    print("Testing on interface %d (first configured LED interface)\n" % test_iface)
+
+    if test_iface >= len(unique_devices):
+        print("Interface %d not available!" % test_iface)
+        return
+
+    btn = USBButtonDevice(unique_devices[test_iface]["path"], 1)
+    if not btn.connect():
+        print("Could not open device!")
+        return
+
+    methods = btn._get_methods(255, 0, 0)
+    working = []
+
+    for method_idx in range(len(methods)):
+        name = methods[method_idx][0]
+        print("--- Method %d: %s ---" % (method_idx, name.split(": ", 1)[1]))
+
+        test_colors = [
+            (255, 0, 0, "RED"),
+            (0, 255, 0, "GREEN"),
+            (0, 0, 255, "BLUE"),
+        ]
+
+        for r, g, b, label in test_colors:
+            m_list = btn._get_methods(r, g, b)
+            _, fn = m_list[method_idx]
+            try:
+                fn()
+                print("  Sent %s (%d,%d,%d) - did it light up %s?" % (label, r, g, b, label))
+            except Exception as e:
+                print("  FAILED: %s" % e)
+                break
+            time.sleep(1.5)
+
+        try:
+            off_methods = btn._get_methods(0, 0, 0)
+            off_methods[method_idx][1]()
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+        answer = input("  Did this method work? (y/n): ").strip().lower()
+        if answer == "y":
+            working.append(method_idx)
+            print("  -> Marked method %d as WORKING\n" % method_idx)
+        else:
+            print("  -> Skipped\n")
+
+    btn.close()
+
+    print("\n" + "=" * 50)
+    if working:
+        print("  WORKING METHODS: %s" % working)
+        best = working[0]
+        print("  Recommended: set WORKING_METHOD = %d in the script" % best)
+        confirm = input("  Apply WORKING_METHOD = %d now? (y/n): " % best).strip().lower()
+        if confirm == "y":
+            WORKING_METHOD = best
+            try:
+                with open(__file__, "r") as f:
+                    script = f.read()
+                script = re.sub(
+                    r"^WORKING_METHOD\s*=\s*.*$",
+                    "WORKING_METHOD = %d" % best,
+                    script,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+                with open(__file__, "w") as f:
+                    f.write(script)
+                print("  Saved WORKING_METHOD = %d to script!" % best)
+            except Exception as e:
+                print("  Could not save: %s" % e)
+                print("  Manually set WORKING_METHOD = %d at top of script." % best)
+    else:
+        print("  No working methods found on interface %d." % test_iface)
+        print("  Try running --diagnose after --remap to check a different interface.")
+    print("=" * 50)
+
+
 def run():
     global BUTTON_INTERFACES
     is_bruteforce = "--test" in sys.argv
     is_remap = "--remap" in sys.argv
+    is_diagnose = "--diagnose" in sys.argv
 
     print("=" * 50)
     print("  CIMC Spirits - USBButton LED Controller")
     print("=" * 50)
     print("  App URL: %s" % APP_URL)
-    if is_remap:
+    if is_diagnose:
+        print("  Mode: LED DIAGNOSTIC")
+    elif is_remap:
         print("  Mode: INTERACTIVE REMAP")
     elif is_bruteforce:
         print("  Mode: BRUTEFORCE TEST")
@@ -579,7 +683,12 @@ def run():
     print("    python %s [url]          Normal mode (poll & pulse)" % sys.argv[0])
     print("    python %s --test         Bruteforce test all interfaces" % sys.argv[0])
     print("    python %s --remap        Interactive button remap" % sys.argv[0])
+    print("    python %s --diagnose     Test each LED method individually" % sys.argv[0])
     print()
+
+    if is_diagnose:
+        run_diagnose()
+        return
 
     if is_remap:
         controller = ButtonController(bruteforce=True)
@@ -760,6 +869,6 @@ def run():
 
 if __name__ == "__main__":
     for arg in sys.argv[1:]:
-        if arg not in ("--test", "--remap"):
+        if arg not in ("--test", "--remap", "--diagnose"):
             APP_URL = arg
     run()
