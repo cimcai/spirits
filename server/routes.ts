@@ -493,7 +493,7 @@ export async function registerRoutes(
           file,
           model: "gpt-4o-mini-transcribe",
           language: "en",
-          prompt: "This is a conversation in English about philosophy, consciousness, and ideas.",
+          prompt: "Transcribe the spoken words exactly. If there is only silence or background noise, return an empty string.",
         }),
         { roomId: roomId ?? undefined, metadata: { inputSize: req.file.buffer.length } }
       );
@@ -501,15 +501,22 @@ export async function registerRoutes(
       let text = transcription.text?.trim() || "";
       
       const genericPhrases = [
-        "this is a conversation in english",
-        "about philosophy, consciousness, and ideas",
+        "this is a conversation",
+        "about philosophy",
+        "consciousness, and ideas",
+        "philosophy, consciousness",
         "thank you for watching",
         "thanks for watching",
-        "thank you.",
-        "thanks.",
+        "thank you for listening",
+        "thanks for listening",
+        "please subscribe",
+        "transcribe the spoken",
+        "only silence",
+        "background noise",
       ];
-      const lowerText = text.toLowerCase();
-      if (genericPhrases.some(p => lowerText.includes(p)) || text.length < 3) {
+      const lowerText = text.toLowerCase().replace(/[.,!?]/g, "");
+      if (genericPhrases.some(p => lowerText.includes(p)) || text.length < 3 || lowerText === "thank you" || lowerText === "thanks" || lowerText === "you") {
+        console.log(`[transcribe] Filtered generic phrase: "${text}"`);
         return res.status(200).json({ text: "", entry: null });
       }
 
