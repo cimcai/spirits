@@ -365,9 +365,12 @@ def run_remap(_ignored=None):
         if not btn.connect():
             continue
 
-        print("Lighting interface %d of %d (WHITE)..." % (i, total - 1))
-        btn.set_color(255, 255, 255)
-        time.sleep(0.3)
+        print("Pulsing interface %d of %d (RED)..." % (i, total - 1))
+        for _ in range(6):
+            btn.set_color(255, 0, 0)
+            time.sleep(0.3)
+            btn.set_color(40, 0, 0)
+            time.sleep(0.3)
 
         answer = input("  Which philosopher button is this? (1/2/3, or Enter to skip): ").strip()
 
@@ -437,11 +440,8 @@ def run_normal_test(controller):
         print("  Button %d -> RGB(%d, %d, %d)" % (idx, color[0], color[1], color[2]))
         controller.set_button_color(idx, *color)
         time.sleep(1.0)
-    time.sleep(0.5)
-    print("  All white...")
-    controller.set_all_color(255, 255, 255)
     time.sleep(1.0)
-    print("  Off.")
+    print("  All off.")
     controller.set_all_color(0, 0, 0)
     print("--- Test Complete ---\n")
 
