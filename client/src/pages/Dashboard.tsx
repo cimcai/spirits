@@ -344,74 +344,74 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Compact mobile bar: latest message + top-3 orbs side by side */}
+      {/* Top-3 philosophers side by side + latest message */}
       {models.length > 0 && (
-        <div className="sticky top-[65px] z-40 bg-background border-b lg:hidden">
-          {entries.length > 0 && (
-            <div className="px-4 pt-2 pb-1">
-              <p className="text-xs text-muted-foreground truncate" data-testid="text-mobile-latest">
-                <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
-                {entries[entries.length - 1].content}
-              </p>
-            </div>
-          )}
-          <div className="flex items-center justify-around px-2 py-2">
-            {top3ModelIds.map((modelId, idx) => {
-              const model = models.find(m => m.id === modelId);
-              if (!model) return null;
-              const conf = getEffectiveConfidence(model);
-              const isActive = conf > 50;
-              const pulseIntensity = conf / 100;
-              const orbSize = 40;
-              const glowSize = 4 + (pulseIntensity * 14);
-              const animDur = 2 - (pulseIntensity * 1.2);
-              return (
-                <button
-                  key={modelId}
-                  data-testid={`orb-button-${idx + 1}`}
-                  onClick={() => isActive && triggerPhilosopherById(modelId)}
-                  disabled={!isActive}
-                  className="flex items-center gap-2 disabled:opacity-30"
-                >
-                  <div className="relative flex items-center justify-center flex-shrink-0">
-                    {isActive && (
+        <div className="sticky top-[65px] z-40 bg-background border-b">
+          <div className="max-w-7xl mx-auto px-4 lg:px-6">
+            <div className="flex items-center justify-around py-3">
+              {top3ModelIds.map((modelId, idx) => {
+                const model = models.find(m => m.id === modelId);
+                if (!model) return null;
+                const conf = getEffectiveConfidence(model);
+                const isActive = conf > 50;
+                const pulseIntensity = conf / 100;
+                const orbSize = window.innerWidth >= 1024 ? 56 : 40;
+                const glowSize = 4 + (pulseIntensity * 18);
+                const animDur = 2 - (pulseIntensity * 1.2);
+                return (
+                  <button
+                    key={modelId}
+                    data-testid={`orb-button-${idx + 1}`}
+                    onClick={() => isActive && triggerPhilosopherById(modelId)}
+                    disabled={!isActive}
+                    className="flex flex-col items-center gap-1 disabled:opacity-30"
+                  >
+                    <div className="relative flex items-center justify-center flex-shrink-0">
+                      {isActive && (
+                        <div
+                          className="absolute rounded-full"
+                          style={{
+                            width: orbSize + glowSize,
+                            height: orbSize + glowSize,
+                            backgroundColor: model.color,
+                            opacity: 0.3,
+                            animation: `pulse ${animDur}s ease-in-out infinite`,
+                          }}
+                        />
+                      )}
                       <div
-                        className="absolute rounded-full"
+                        className="rounded-full relative z-10 flex items-center justify-center"
                         style={{
-                          width: orbSize + glowSize,
-                          height: orbSize + glowSize,
-                          backgroundColor: model.color,
-                          opacity: 0.3,
-                          animation: `pulse ${animDur}s ease-in-out infinite`,
+                          width: orbSize,
+                          height: orbSize,
+                          backgroundColor: isActive ? model.color : 'transparent',
+                          border: isActive ? 'none' : '2px solid hsl(var(--border))',
+                          transition: 'all 0.3s ease',
                         }}
-                      />
-                    )}
-                    <div
-                      className="rounded-full relative z-10 flex items-center justify-center"
-                      style={{
-                        width: orbSize,
-                        height: orbSize,
-                        backgroundColor: isActive ? model.color : 'transparent',
-                        border: isActive ? 'none' : '2px solid hsl(var(--border))',
-                        transition: 'all 0.3s ease',
-                      }}
-                    >
-                      <span className="text-xs font-bold" style={{ color: isActive ? '#000' : 'hsl(var(--muted-foreground))' }}>
-                        {idx + 1}
-                      </span>
+                      >
+                        <span className="text-sm font-bold" style={{ color: isActive ? '#000' : 'hsl(var(--muted-foreground))' }}>
+                          {idx + 1}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-start min-w-0">
-                    <span className="text-[10px] text-muted-foreground truncate max-w-[70px]">
+                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
                       {model.name}
                     </span>
                     {isActive && (
-                      <span className="text-[10px] font-mono text-muted-foreground">{conf}%</span>
+                      <span className="text-xs font-mono text-muted-foreground">{conf}%</span>
                     )}
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>
+            {entries.length > 0 && (
+              <div className="pb-3 -mt-1">
+                <p className="text-sm text-muted-foreground text-center truncate" data-testid="text-latest-message">
+                  <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
+                  {entries[entries.length - 1].content}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
