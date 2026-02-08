@@ -134,6 +134,18 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
   });
 
   const handleTrigger = () => {
+    // Check if this is PersonaPlex - open voice UI
+    if (model.llmModel === "personaplex" || model.name.toLowerCase().includes("personaplex")) {
+      // Open PersonaPlex voice UI in new window
+      const personaplexUrl = "https://cjuzwdji4o9zi2-8998.proxy.runpod.net";
+      window.open(personaplexUrl, "personaplex_voice", "width=800,height=600");
+      toast({
+        title: `${model.name} Voice Activated!`,
+        description: "PersonaPlex voice UI opened - speak directly with the AI",
+      });
+      return;
+    }
+    
     if (latestActiveAnalysis) {
       triggerMutation.mutate(latestActiveAnalysis.id);
     }
