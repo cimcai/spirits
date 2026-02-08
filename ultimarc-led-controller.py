@@ -72,7 +72,7 @@ BUTTON_DEBOUNCE = 1.0  # seconds between accepting repeated button presses
 
 # Set this to a method number (0-10) after running --diagnose to only use
 # the method that actually works. None = try all methods.
-WORKING_METHOD = None
+WORKING_METHOD = 7
 
 # Which HID interface indices (0-based) control the LEDs for each button.
 # From bruteforce test: interfaces 1, 5, 9 lit up (i.e. indices 0, 4, 8).
