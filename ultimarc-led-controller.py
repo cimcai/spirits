@@ -70,6 +70,10 @@ MIN_PULSE_BRIGHTNESS = 0.2
 CONFIDENCE_THRESHOLD = 50
 BUTTON_DEBOUNCE = 1.0  # seconds between accepting repeated button presses
 
+# Set this to a method number (0-10) after running --diagnose to only use
+# the method that actually works. None = try all methods.
+WORKING_METHOD = None
+
 # Which HID interface indices (0-based) control the LEDs for each button.
 # From bruteforce test: interfaces 1, 5, 9 lit up (i.e. indices 0, 4, 8).
 # Map: Button 1 (philosopher 1) = interface 0, Button 2 = interface 4, Button 3 = interface 8
@@ -112,66 +116,62 @@ class USBButtonDevice:
             return False
 
     def set_color(self, r, g, b, verbose=False):
+        """Set LED color. Uses the configured WORKING_METHOD if set,
+        otherwise tries all methods."""
         if not self.device:
             return False
         r = max(0, min(255, int(r)))
         g = max(0, min(255, int(g)))
         b = max(0, min(255, int(b)))
 
-        methods = [
-            ("feature[0,R,G,B,0]",       lambda: self.device.send_feature_report([0x00, r, g, b, 0x00])),
-            ("feature[0,0,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x00, r, g, b])),
-            ("feature[0,1,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x01, r, g, b])),
-            ("write[0,R,G,B]",           lambda: self.device.write([0x00, r, g, b])),
-            ("write[0,0,R,G,B]",         lambda: self.device.write([0x00, 0x00, r, g, b])),
-            ("write[R,G,B]",             lambda: self.device.write([r, g, b])),
-            ("feature[0,R,G,B]",         lambda: self.device.send_feature_report([0x00, r, g, b])),
-            ("write[0,1,R,G,B]",         lambda: self.device.write([0x00, 0x01, r, g, b])),
-            ("feature[1,R,G,B,0]",       lambda: self.device.send_feature_report([0x01, r, g, b, 0x00])),
-            ("write[0,0,0,R,G,B]",       lambda: self.device.write([0x00, 0x00, 0x00, r, g, b])),
-            ("feature[0,0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
-        ]
+        all_methods = self._get_methods(r, g, b)
 
-        any_ok = False
-        for name, fn in methods:
+        if WORKING_METHOD is not None and WORKING_METHOD < len(all_methods):
+            name, fn = all_methods[WORKING_METHOD]
             try:
                 fn()
-                if verbose:
-                    print("    [%d] %s -> OK" % (self.index, name))
+                return True
+            except Exception:
+                return False
+
+        any_ok = False
+        for name, fn in all_methods:
+            try:
+                fn()
                 any_ok = True
-            except Exception as e:
-                if verbose:
-                    print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
+            except Exception:
+                pass
         return any_ok
 
     def set_color_bruteforce(self, r, g, b):
-        """Try ALL write methods on this device. Used during testing to find what works."""
+        """Try ALL write methods on this device with verbose output."""
         if not self.device:
             return
         r = max(0, min(255, int(r)))
         g = max(0, min(255, int(g)))
         b = max(0, min(255, int(b)))
 
-        methods = [
-            ("feature[0,R,G,B,0]",       lambda: self.device.send_feature_report([0x00, r, g, b, 0x00])),
-            ("feature[0,0,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x00, r, g, b])),
-            ("feature[0,1,R,G,B]",       lambda: self.device.send_feature_report([0x00, 0x01, r, g, b])),
-            ("write[0,R,G,B]",           lambda: self.device.write([0x00, r, g, b])),
-            ("write[0,0,R,G,B]",         lambda: self.device.write([0x00, 0x00, r, g, b])),
-            ("write[R,G,B]",             lambda: self.device.write([r, g, b])),
-            ("feature[0,R,G,B]",         lambda: self.device.send_feature_report([0x00, r, g, b])),
-            ("write[0,1,R,G,B]",         lambda: self.device.write([0x00, 0x01, r, g, b])),
-            ("feature[1,R,G,B,0]",       lambda: self.device.send_feature_report([0x01, r, g, b, 0x00])),
-            ("write[0,0,0,R,G,B]",       lambda: self.device.write([0x00, 0x00, 0x00, r, g, b])),
-            ("feature[0,0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
-        ]
-
-        for name, fn in methods:
+        for name, fn in self._get_methods(r, g, b):
             try:
                 fn()
                 print("    [%d] %s -> OK" % (self.index, name))
             except Exception as e:
                 print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
+
+    def _get_methods(self, r, g, b):
+        return [
+            ("0: feature[0,R,G,B,0]",     lambda: self.device.send_feature_report([0x00, r, g, b, 0x00])),
+            ("1: feature[0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, r, g, b])),
+            ("2: feature[0,1,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x01, r, g, b])),
+            ("3: write[0,R,G,B]",         lambda: self.device.write([0x00, r, g, b])),
+            ("4: write[0,0,R,G,B]",       lambda: self.device.write([0x00, 0x00, r, g, b])),
+            ("5: write[R,G,B]",           lambda: self.device.write([r, g, b])),
+            ("6: feature[0,R,G,B]",       lambda: self.device.send_feature_report([0x00, r, g, b])),
+            ("7: write[0,1,R,G,B]",       lambda: self.device.write([0x00, 0x01, r, g, b])),
+            ("8: feature[1,R,G,B,0]",     lambda: self.device.send_feature_report([0x01, r, g, b, 0x00])),
+            ("9: write[0,0,0,R,G,B]",     lambda: self.device.write([0x00, 0x00, 0x00, r, g, b])),
+            ("10: feature[0,0,0,R,G,B]",  lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
+        ]
 
     def read_input(self):
         """Non-blocking read. Returns data bytes if a button press was detected, else None."""
