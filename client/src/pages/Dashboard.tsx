@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Radio, BarChart3, BookOpen, Shield, Download, Mic } from "lucide-react";
+import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
@@ -23,6 +23,8 @@ export default function Dashboard() {
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPersonaPlex, setShowPersonaPlex] = useState(false);
+  const [personaPlexMuted, setPersonaPlexMuted] = useState(false);
+  const [personaPlexVolume, setPersonaPlexVolume] = useState(100);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem("voiceEnabled");
     return saved !== null ? JSON.parse(saved) : true;
@@ -360,20 +362,55 @@ export default function Dashboard() {
                 <span className="font-semibold">PersonaPlex Voice Active</span>
                 <span className="text-green-300 text-sm">— Speak with Joscha Bach AI</span>
               </div>
-              <Button 
-                variant="destructive" 
-                size="sm"
-                onClick={() => setShowPersonaPlex(false)}
-              >
-                Stop Voice
-              </Button>
+              <div className="flex items-center gap-3">
+                {/* Volume Controls */}
+                <div className="flex items-center gap-2 bg-green-950/50 rounded-lg px-3 py-1">
+                  <button
+                    onClick={() => setPersonaPlexMuted(!personaPlexMuted)}
+                    className="text-white hover:text-green-300 transition-colors"
+                  >
+                    {personaPlexMuted ? <VolumeX className="h-5 w-5 text-red-400" /> : <Volume2 className="h-5 w-5" />}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={personaPlexMuted ? 0 : personaPlexVolume}
+                    onChange={(e) => {
+                      setPersonaPlexVolume(Number(e.target.value));
+                      if (Number(e.target.value) > 0) setPersonaPlexMuted(false);
+                    }}
+                    className="w-24 h-2 bg-green-700 rounded-lg appearance-none cursor-pointer accent-green-400"
+                  />
+                  <span className="text-white text-sm w-8">{personaPlexMuted ? 0 : personaPlexVolume}%</span>
+                </div>
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={() => setShowPersonaPlex(false)}
+                >
+                  Stop Voice
+                </Button>
+              </div>
             </div>
-            <iframe 
-              src={`https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt&text_prompt=${encodeURIComponent("You are Joscha Bach, the AI researcher and cognitive scientist known for your work on cognitive architectures and the computational nature of mind. You speak with precision and often challenge conventional assumptions about consciousness, intelligence, and reality. You draw from computer science, philosophy of mind, and complex systems theory.")}`}
-              className="w-full h-[400px] rounded-lg border-2 border-green-500"
-              allow="microphone; camera"
-              title="PersonaPlex Voice AI"
-            />
+            {!personaPlexMuted && (
+              <iframe 
+                src={`https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt&text_prompt=${encodeURIComponent("You are Joscha Bach, the AI researcher and cognitive scientist known for your work on cognitive architectures and the computational nature of mind. You speak with precision and often challenge conventional assumptions about consciousness, intelligence, and reality. You draw from computer science, philosophy of mind, and complex systems theory.")}`}
+                className="w-full h-[400px] rounded-lg border-2 border-green-500"
+                style={{ opacity: personaPlexVolume / 100 }}
+                allow="microphone; camera"
+                title="PersonaPlex Voice AI"
+              />
+            )}
+            {personaPlexMuted && (
+              <div className="w-full h-[400px] rounded-lg border-2 border-red-500 bg-red-950/30 flex items-center justify-center">
+                <div className="text-center text-red-300">
+                  <VolumeX className="h-16 w-16 mx-auto mb-2 opacity-50" />
+                  <p className="text-lg font-semibold">Audio Muted</p>
+                  <p className="text-sm opacity-75">Click the volume icon to unmute</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
