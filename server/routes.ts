@@ -448,6 +448,69 @@ export async function registerRoutes(
     }
   });
 
+  // Trigger a philosopher by button index (1, 2, or 3) - used by Ultimarc USB button controller
+  app.post("/api/trigger-by-index/:index", async (req, res) => {
+    try {
+      const index = parseInt(req.params.index);
+      if (isNaN(index) || index < 1 || index > 3) {
+        return res.status(400).json({ error: "Index must be 1, 2, or 3" });
+      }
+
+      const roomId = req.body.roomId || 1;
+      const models = await storage.getAllAiModels();
+      const allStatuses = await Promise.all(
+        models.map(async (model) => {
+          const latest = await storage.getLatestAnalysisByModel(roomId, model.id);
+          const rawConfidence = latest?.confidence ?? 0;
+          const effectiveConfidence = Math.round(rawConfidence * (model.confidenceMultiplier ?? 1));
+          return { model, confidence: effectiveConfidence, latest };
+        })
+      );
+
+      const sorted = [...allStatuses].sort((a, b) => b.confidence - a.confidence);
+      const target = sorted[index - 1];
+
+      if (!target) {
+        return res.status(404).json({ error: "No philosopher at index " + index });
+      }
+
+      if (target.confidence < 50) {
+        return res.status(400).json({ error: `${target.model.name} confidence too low (${target.confidence}%)` });
+      }
+
+      const analyses = await storage.getAnalysesByRoom(roomId);
+      const latestActiveAnalysis = analyses
+        .filter(a => a.modelId === target.model.id && !a.isTriggered && a.proposedResponse && a.confidence > 0)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+      if (!latestActiveAnalysis) {
+        return res.status(400).json({ error: `${target.model.name} has no active response to deliver` });
+      }
+
+      await storage.markAnalysisTriggered(latestActiveAnalysis.id);
+
+      const entry = await storage.createConversationEntry({
+        roomId,
+        speaker: target.model.name,
+        content: latestActiveAnalysis.proposedResponse!,
+      });
+
+      await storage.createOutboundCall({
+        roomId,
+        modelId: target.model.id,
+        triggerReason: latestActiveAnalysis.analysis,
+        responseContent: latestActiveAnalysis.proposedResponse!,
+        status: "completed",
+      });
+
+      console.log(`[button] Philosopher ${index} (${target.model.name}) triggered via USB button`);
+      res.status(201).json({ entry, triggered: true, philosopher: target.model.name });
+    } catch (error) {
+      console.error("Error triggering by index:", error);
+      res.status(500).json({ error: "Failed to trigger philosopher" });
+    }
+  });
+
   app.get("/api/led-status", async (req, res) => {
     try {
       const models = await storage.getAllAiModels();

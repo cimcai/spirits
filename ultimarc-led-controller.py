@@ -68,6 +68,7 @@ USBBUTTON_PRODUCT_ID = 0x1200
 PULSE_SPEED = 2.0
 MIN_PULSE_BRIGHTNESS = 0.2
 CONFIDENCE_THRESHOLD = 50
+BUTTON_DEBOUNCE = 1.0  # seconds between accepting repeated button presses
 
 # Which HID interface indices (0-based) control the LEDs for each button.
 # From bruteforce test: interfaces 1, 5, 9 lit up (i.e. indices 0, 4, 8).
@@ -172,6 +173,18 @@ class USBButtonDevice:
             except Exception as e:
                 print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
 
+    def read_input(self):
+        """Non-blocking read. Returns data bytes if a button press was detected, else None."""
+        if not self.device:
+            return None
+        try:
+            data = self.device.read(64)
+            if data:
+                return data
+        except Exception:
+            pass
+        return None
+
     def close(self):
         if self.device:
             try:
@@ -234,6 +247,7 @@ def find_usb_buttons(led_indices=None, bruteforce=False):
 class ButtonController:
     def __init__(self, bruteforce=False):
         self.buttons = []
+        self.input_readers = []  # list of (button_index, hid_device) for press detection
         self.is_real = False
         self.bruteforce = bruteforce
 
@@ -247,10 +261,72 @@ class ButtonController:
             print("\n  %d button(s) ready for LED control" % len(self.buttons))
             if not self.bruteforce:
                 print("  Mapped to interfaces: %s" % BUTTON_INTERFACES)
+            self._open_input_readers()
             return True
         else:
             print("\n  No USBButtons could be opened")
             return False
+
+    def _open_input_readers(self):
+        """Open non-LED HID interfaces for reading button presses.
+        Each physical USBButton typically exposes ~4 consecutive interfaces.
+        The LED is on one (e.g. 0, 4, 8) and input may come from any nearby one.
+        We assign each interface to the nearest configured LED interface."""
+        all_devices = hid.enumerate(ULTIMARC_VENDOR_ID, USBBUTTON_PRODUCT_ID)
+        seen_paths = set()
+        unique = []
+        for dev in all_devices:
+            path = dev.get("path", b"")
+            if path not in seen_paths:
+                seen_paths.add(path)
+                unique.append(dev)
+
+        led_set = set(BUTTON_INTERFACES)
+        opened = 0
+        for iface_idx, dev_info in enumerate(unique):
+            if iface_idx in led_set:
+                continue
+            btn_num = self._nearest_button(iface_idx)
+            if btn_num is None:
+                continue
+            try:
+                d = hid.device()
+                d.open_path(dev_info["path"])
+                d.set_nonblocking(1)
+                self.input_readers.append((btn_num, d))
+                opened += 1
+            except Exception:
+                pass
+        if opened:
+            print("  Opened %d extra interface(s) for button press detection" % opened)
+
+    def _nearest_button(self, iface_idx):
+        """Given an HID interface index, find the closest LED interface and
+        return its button number (1-based), or None if too far away."""
+        best_btn = None
+        best_dist = 999
+        for btn_num_0, led_idx in enumerate(BUTTON_INTERFACES):
+            dist = abs(iface_idx - led_idx)
+            if dist < best_dist and dist <= 3:
+                best_dist = dist
+                best_btn = btn_num_0 + 1
+        return best_btn
+
+    def check_button_presses(self):
+        """Check all devices for HID input reports. Returns list of button indices (1-3) that were pressed."""
+        pressed = set()
+        for btn_idx, btn in enumerate(self.buttons):
+            data = btn.read_input()
+            if data:
+                pressed.add(btn_idx + 1)
+        for btn_num, dev in self.input_readers:
+            try:
+                data = dev.read(64)
+                if data:
+                    pressed.add(btn_num)
+            except Exception:
+                pass
+        return list(pressed)
 
     def set_button_color(self, index, r, g, b):
         if 1 <= index <= len(self.buttons):
@@ -264,6 +340,12 @@ class ButtonController:
         for btn in self.buttons:
             btn.set_color(0, 0, 0)
             btn.close()
+        for _, dev in self.input_readers:
+            try:
+                dev.close()
+            except Exception:
+                pass
+        self.input_readers = []
 
     def count(self):
         return len(self.buttons)
@@ -422,6 +504,28 @@ def fetch_led_status(app_url):
         return None
 
 
+def trigger_philosopher(app_url, button_index):
+    """Call the server API to trigger the philosopher at the given button index (1-3)."""
+    try:
+        resp = requests.post(
+            "%s/api/trigger-by-index/%d" % (app_url, button_index),
+            json={"roomId": 1},
+            timeout=10,
+        )
+        data = resp.json()
+        if resp.status_code == 201:
+            name = data.get("philosopher", "Unknown")
+            print("\n  >>> BUTTON %d PRESSED -> %s speaks! <<<" % (button_index, name))
+            return True
+        else:
+            err = data.get("error", "Unknown error")
+            print("\n  >>> BUTTON %d PRESSED -> %s <<<" % (button_index, err))
+            return False
+    except requests.RequestException as e:
+        print("\n  >>> BUTTON %d PRESSED -> API error: %s <<<" % (button_index, e))
+        return False
+
+
 def compute_pulse(confidence, elapsed):
     if confidence < CONFIDENCE_THRESHOLD:
         return 0.0
@@ -498,9 +602,11 @@ def run():
     start_time = time.time()
     last_status = None
     display_lines = 0
+    button_press_times = {}
 
     print("\nStarting LED control loop...")
-    print("  Keys:  r = remap   t = test   s = swap two buttons   q = quit\n")
+    print("  Keys:  1/2/3 = trigger philosopher   r = remap   t = test   s = swap   q = quit")
+    print("  USB button presses are also detected automatically.\n")
 
     old_settings = None
     if not IS_WINDOWS:
@@ -576,6 +682,23 @@ def run():
                         print("  Invalid input, no change.")
                     print("\n  Keys:  r = remap   t = test   s = swap   q = quit\n")
                     _enter_cbreak_mode()
+
+                elif key in ("1", "2", "3"):
+                    btn_idx = int(key)
+                    print("\n  [keyboard] Triggering philosopher %d..." % btn_idx)
+                    trigger_philosopher(APP_URL, btn_idx)
+                    display_lines = 0
+
+            if controller.is_real:
+                pressed = controller.check_button_presses()
+                now = time.time()
+                for btn_idx in pressed:
+                    last_t = button_press_times.get(btn_idx, 0)
+                    if now - last_t > BUTTON_DEBOUNCE:
+                        button_press_times[btn_idx] = now
+                        print("\n  [USB] Button %d pressed! Triggering philosopher..." % btn_idx)
+                        trigger_philosopher(APP_URL, btn_idx)
+                        display_lines = 0
 
             status = fetch_led_status(APP_URL)
             if status:
