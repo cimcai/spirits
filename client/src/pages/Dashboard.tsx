@@ -24,7 +24,6 @@ export default function Dashboard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPersonaPlex, setShowPersonaPlex] = useState(false);
   const [personaPlexMuted, setPersonaPlexMuted] = useState(false);
-  const [personaPlexVolume, setPersonaPlexVolume] = useState(100);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem("voiceEnabled");
     return saved !== null ? JSON.parse(saved) : true;
@@ -362,34 +361,22 @@ export default function Dashboard() {
                 <span className="font-semibold">PersonaPlex Voice Active</span>
                 <span className="text-green-300 text-sm">— Speak with Joscha Bach AI</span>
               </div>
-              <div className="flex items-center gap-3">
-                {/* Volume Controls */}
-                <div className="flex items-center gap-2 bg-green-950/50 rounded-lg px-3 py-1">
-                  <button
-                    onClick={() => setPersonaPlexMuted(!personaPlexMuted)}
-                    className="text-white hover:text-green-300 transition-colors"
-                  >
-                    {personaPlexMuted ? <VolumeX className="h-5 w-5 text-red-400" /> : <Volume2 className="h-5 w-5" />}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={personaPlexMuted ? 0 : personaPlexVolume}
-                    onChange={(e) => {
-                      setPersonaPlexVolume(Number(e.target.value));
-                      if (Number(e.target.value) > 0) setPersonaPlexMuted(false);
-                    }}
-                    className="w-24 h-2 bg-green-700 rounded-lg appearance-none cursor-pointer accent-green-400"
-                  />
-                  <span className="text-white text-sm w-8">{personaPlexMuted ? 0 : personaPlexVolume}%</span>
-                </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={personaPlexMuted ? "destructive" : "secondary"}
+                  size="sm"
+                  onClick={() => setPersonaPlexMuted(!personaPlexMuted)}
+                  className="gap-2"
+                >
+                  {personaPlexMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  {personaPlexMuted ? "Unmute" : "Mute"}
+                </Button>
                 <Button 
                   variant="destructive" 
                   size="sm"
                   onClick={() => setShowPersonaPlex(false)}
                 >
-                  Stop Voice
+                  Stop
                 </Button>
               </div>
             </div>
@@ -397,7 +384,6 @@ export default function Dashboard() {
               <iframe 
                 src={`https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt&text_prompt=${encodeURIComponent("You are Joscha Bach, the AI researcher and cognitive scientist known for your work on cognitive architectures and the computational nature of mind. You speak with precision and often challenge conventional assumptions about consciousness, intelligence, and reality. You draw from computer science, philosophy of mind, and complex systems theory.")}`}
                 className="w-full h-[400px] rounded-lg border-2 border-green-500"
-                style={{ opacity: personaPlexVolume / 100 }}
                 allow="microphone; camera"
                 title="PersonaPlex Voice AI"
               />
