@@ -367,14 +367,14 @@ def run_remap(_ignored=None):
 
         print("Pulsing interface %d of %d (RED)..." % (i, total - 1))
         for _ in range(6):
-            btn.set_color(255, 0, 0)
+            btn.set_color_bruteforce(255, 0, 0)
             time.sleep(0.3)
-            btn.set_color(40, 0, 0)
+            btn.set_color_bruteforce(40, 0, 0)
             time.sleep(0.3)
 
         answer = input("  Which philosopher button is this? (1/2/3, or Enter to skip): ").strip()
 
-        btn.set_color(0, 0, 0)
+        btn.set_color_bruteforce(0, 0, 0)
         btn.close()
 
         if answer in ("1", "2", "3"):
