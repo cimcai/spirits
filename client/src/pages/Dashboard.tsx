@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Radio, BarChart3, BookOpen, Shield, Download } from "lucide-react";
+import { Radio, BarChart3, BookOpen, Shield, Download, Mic } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
@@ -308,6 +308,19 @@ export default function Dashboard() {
                 {room.name}
               </Badge>
             )}
+            <Button 
+              variant="default" 
+              size="sm"
+              className="bg-green-500 hover:bg-green-600 text-white gap-2"
+              onClick={() => {
+                window.open('https://cjuzwdji4o9zi2-8998.proxy.runpod.net', 'personaplex_voice', 'width=800,height=600');
+                toast({ title: "PersonaPlex Voice", description: "Voice AI opened - speak with Joscha!" });
+              }}
+              data-testid="button-personaplex"
+            >
+              <Mic className="h-4 w-4" />
+              PersonaPlex Voice
+            </Button>
             <Link href="/analytics">
               <Button variant="ghost" size="icon" data-testid="button-analytics">
                 <BarChart3 />
