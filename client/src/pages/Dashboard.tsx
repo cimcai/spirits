@@ -352,17 +352,25 @@ export default function Dashboard() {
       </header>
 
       {showPersonaPlex && (
-        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
-          <div className="relative w-full max-w-4xl h-[80vh] bg-white rounded-lg overflow-hidden shadow-2xl">
-            <button 
-              onClick={() => setShowPersonaPlex(false)}
-              className="absolute top-2 right-2 z-10 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-            >
-              ✕ Close
-            </button>
+        <div className="w-full bg-gradient-to-r from-green-900 to-green-800 border-b border-green-600">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-white">
+                <Mic className="h-5 w-5 animate-pulse text-green-400" />
+                <span className="font-semibold">PersonaPlex Voice Active</span>
+                <span className="text-green-300 text-sm">— Speak with Joscha Bach AI</span>
+              </div>
+              <Button 
+                variant="destructive" 
+                size="sm"
+                onClick={() => setShowPersonaPlex(false)}
+              >
+                Stop Voice
+              </Button>
+            </div>
             <iframe 
               src="https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt"
-              className="w-full h-full border-0"
+              className="w-full h-[400px] rounded-lg border-2 border-green-500"
               allow="microphone; camera"
               title="PersonaPlex Voice AI"
             />
