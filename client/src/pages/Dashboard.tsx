@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ConversationStream } from "@/components/ConversationStream";
@@ -130,18 +130,19 @@ export default function Dashboard() {
   }, []);
 
   // Compute effective confidence for each model to determine top-3 button mapping
+  const philosopherNames = useMemo(() => new Set(models.map(m => m.name)), [models]);
+
   const getEffectiveConfidence = useCallback((model: AiModel) => {
     const modelAn = analyses.filter((a) => a.modelId === model.id);
-    const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
     const latestActiveAnalysis = modelAn
       .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
     if (!latestActiveAnalysis) return 0;
     const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
-    const messagesSinceAnalysis = latestEntryId - analysisEntryId;
-    const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
+    const humanMessagesSince = entries.filter(e => e.id > analysisEntryId && !philosopherNames.has(e.speaker)).length;
+    const decayFactor = Math.max(0, 1 - (humanMessagesSince * 0.15));
     return Math.round(latestActiveAnalysis.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
-  }, [analyses, entries]);
+  }, [analyses, entries, philosopherNames]);
 
   // Top 3 models by effective confidence get button mapping
   const top3ModelIds = [...models]
@@ -434,6 +435,8 @@ export default function Dashboard() {
                       latestEntryId={entries.length > 0 ? entries[entries.length - 1].id : 0}
                       voiceEnabled={voiceEnabled}
                       buttonIndex={btnIdx >= 0 ? btnIdx + 1 : undefined}
+                      entries={entries}
+                      modelNames={philosopherNames}
                     />
                   );
                 })}

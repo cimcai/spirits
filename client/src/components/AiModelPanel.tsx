@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ThumbsUp, ThumbsDown, Share2 } from "lucide-react";
-import type { AiModel, ModelAnalysis, ResponseRating } from "@shared/schema";
+import type { AiModel, ModelAnalysis, ResponseRating, ConversationEntry } from "@shared/schema";
 
 interface AiModelPanelProps {
   model: AiModel;
@@ -16,9 +16,11 @@ interface AiModelPanelProps {
   latestEntryId?: number;
   voiceEnabled?: boolean;
   buttonIndex?: number;
+  entries?: ConversationEntry[];
+  modelNames?: Set<string>;
 }
 
-export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true, buttonIndex }: AiModelPanelProps) {
+export function AiModelPanel({ model, analyses, isProcessing = false, roomId, latestEntryId = 0, voiceEnabled = true, buttonIndex, entries = [], modelNames = new Set() }: AiModelPanelProps) {
   const { toast } = useToast();
   const [ratedAnalysisIds, setRatedAnalysisIds] = useState<Set<number>>(new Set());
 
@@ -39,9 +41,9 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
   const analysisEntryId = latestActiveAnalysis?.conversationEntryId || 0;
-  const messagesSinceAnalysis = latestEntryId - analysisEntryId;
+  const humanMessagesSince = entries.filter(e => e.id > analysisEntryId && !modelNames.has(e.speaker)).length;
   
-  const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
+  const decayFactor = Math.max(0, 1 - (humanMessagesSince * 0.15));
   const rawConfidence = latestActiveAnalysis?.confidence || 0;
   const multiplier = model.confidenceMultiplier ?? 1;
   const confidence = Math.round(rawConfidence * decayFactor * multiplier);

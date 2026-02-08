@@ -891,8 +891,8 @@ export async function registerRoutes(
       const roomId = req.query.roomId ? parseInt(req.query.roomId as string) : 1;
       const models = await storage.getAllAiModels();
       const entries = await storage.getEntriesByRoom(roomId);
-      const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
       const allAnalyses = await storage.getAnalysesByRoom(roomId);
+      const philosopherNameSet = new Set(models.map(m => m.name));
 
       const philosophers = models.map((model) => {
           const modelAnalyses = allAnalyses.filter(a => a.modelId === model.id);
@@ -904,8 +904,8 @@ export async function registerRoutes(
           let proposedResponse = null;
           if (latestActive) {
             const analysisEntryId = latestActive.conversationEntryId || 0;
-            const messagesSince = latestEntryId - analysisEntryId;
-            const decayFactor = Math.max(0, 1 - (messagesSince * 0.15));
+            const humanMessagesSince = entries.filter(e => e.id > analysisEntryId && !philosopherNameSet.has(e.speaker)).length;
+            const decayFactor = Math.max(0, 1 - (humanMessagesSince * 0.15));
             effectiveConfidence = Math.round(latestActive.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
             if (effectiveConfidence > 50) {
               proposedResponse = latestActive.proposedResponse;
