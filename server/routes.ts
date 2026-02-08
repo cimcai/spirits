@@ -451,8 +451,18 @@ export async function registerRoutes(
         { roomId: roomId ?? undefined, metadata: { inputSize: req.file.buffer.length } }
       );
 
-      const text = transcription.text?.trim();
-      if (!text) {
+      let text = transcription.text?.trim() || "";
+      
+      const genericPhrases = [
+        "this is a conversation in english",
+        "about philosophy, consciousness, and ideas",
+        "thank you for watching",
+        "thanks for watching",
+        "thank you.",
+        "thanks.",
+      ];
+      const lowerText = text.toLowerCase();
+      if (genericPhrases.some(p => lowerText.includes(p)) || text.length < 3) {
         return res.status(200).json({ text: "", entry: null });
       }
 
