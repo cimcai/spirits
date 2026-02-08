@@ -161,14 +161,26 @@ export default function Dashboard() {
       .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
-    if (!latestActiveAnalysis) return;
+    if (!latestActiveAnalysis) {
+      toast({
+        title: `${model.name} has nothing to say`,
+        description: "No active analysis available. Start a conversation first.",
+      });
+      return;
+    }
 
     const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
     const messagesSinceAnalysis = latestEntryId - analysisEntryId;
     const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
     const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
     
-    if (confidence <= 50) return;
+    if (confidence <= 50) {
+      toast({
+        title: `${model.name} — confidence too low`,
+        description: `Current: ${confidence}%. Their insight has decayed. Generate new conversation to refresh.`,
+      });
+      return;
+    }
 
     try {
       await apiRequest("POST", `/api/analyses/${latestActiveAnalysis.id}/trigger`, {});

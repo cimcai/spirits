@@ -474,17 +474,13 @@ export async function registerRoutes(
         return res.status(404).json({ error: "No philosopher at index " + index });
       }
 
-      if (target.confidence < 50) {
-        return res.status(400).json({ error: `${target.model.name} confidence too low (${target.confidence}%)` });
-      }
-
       const analyses = await storage.getAnalysesByRoom(roomId);
       const latestActiveAnalysis = analyses
-        .filter(a => a.modelId === target.model.id && !a.isTriggered && a.proposedResponse && a.confidence > 0)
+        .filter(a => a.modelId === target.model.id && a.proposedResponse && a.confidence > 0)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
       if (!latestActiveAnalysis) {
-        return res.status(400).json({ error: `${target.model.name} has no active response to deliver` });
+        return res.status(400).json({ error: `${target.model.name} has no response available` });
       }
 
       await storage.markAnalysisTriggered(latestActiveAnalysis.id);
