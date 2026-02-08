@@ -26,6 +26,7 @@ export default function Dashboard() {
     const saved = localStorage.getItem("voiceEnabled");
     return saved !== null ? JSON.parse(saved) : true;
   });
+  const [ttsSpeaker, setTtsSpeaker] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSeenCallIdRef = useRef<number>(0);
   const ttsPlayingRef = useRef<boolean>(false);
@@ -247,6 +248,9 @@ export default function Dashboard() {
         if (!call.responseContent) continue;
         const model = models.find(m => m.id === call.modelId);
         const voice = model?.voice || "alloy";
+        const speakerName = model?.name || "Unknown";
+        console.log("[TTS] Playing response from %s (voice: %s, call #%d)", speakerName, voice, call.id);
+        setTtsSpeaker(speakerName);
         try {
           const audioResponse = await fetch("/api/tts", {
             method: "POST",
@@ -257,18 +261,22 @@ export default function Dashboard() {
             const audioBlob = await audioResponse.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
+            console.log("[TTS] Audio loaded, starting playback for %s", speakerName);
             await new Promise<void>((resolve) => {
-              audio.onended = () => resolve();
-              audio.onerror = () => resolve();
-              audio.play().catch(() => resolve());
+              audio.onended = () => { console.log("[TTS] Finished playing %s", speakerName); resolve(); };
+              audio.onerror = (e) => { console.log("[TTS] Audio error for %s:", speakerName, e); resolve(); };
+              audio.play().catch((e) => { console.log("[TTS] Play blocked for %s:", speakerName, e); resolve(); });
             });
             URL.revokeObjectURL(audioUrl);
+          } else {
+            console.log("[TTS] API returned %d for %s", audioResponse.status, speakerName);
           }
-        } catch {
-          // TTS failed, continue
+        } catch (e) {
+          console.log("[TTS] Fetch error for %s:", speakerName, e);
         }
       }
       ttsPlayingRef.current = false;
+      setTtsSpeaker(null);
     };
 
     playQueue();
@@ -329,6 +337,12 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {ttsSpeaker && (
+        <div className="sticky top-[65px] z-50 bg-black text-white text-center py-2 text-sm font-medium animate-pulse" data-testid="text-tts-speaking">
+          Now Speaking: {ttsSpeaker}
+        </div>
+      )}
 
       {/* Compact mobile bar: latest message + top-3 orbs side by side */}
       {models.length > 0 && (
