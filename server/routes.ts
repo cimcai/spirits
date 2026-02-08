@@ -291,6 +291,68 @@ export async function registerRoutes(
     }
   });
 
+  // Force a philosopher to speak — generates fresh response regardless of confidence
+  app.post("/api/models/:modelId/force-speak", async (req, res) => {
+    try {
+      const modelId = parseInt(req.params.modelId);
+      const roomId = req.body.roomId || 1;
+      const model = await storage.getAiModel(modelId);
+      if (!model) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+
+      const allEntries = await storage.getEntriesByRoom(roomId);
+      if (allEntries.length === 0) {
+        return res.status(400).json({ error: "No conversation to respond to" });
+      }
+
+      const recentEntries = allEntries.slice(-20);
+      const conversationContext = recentEntries
+        .map((e: { speaker: string; content: string }) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      const llmModel = model.llmModel || "gpt-4o-mini";
+      const result = await logLatency(
+        "analysis", llmModel, getProvider(llmModel),
+        () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+        { roomId, modelId: model.id, metadata: { philosopherName: model.name, source: "force-speak" } }
+      );
+
+      const responseText = result.response || "I have nothing to add at this time.";
+
+      const analysis = await storage.createModelAnalysis({
+        roomId,
+        modelId: model.id,
+        conversationEntryId: allEntries[allEntries.length - 1].id,
+        confidence: result.confidence || 50,
+        analysis: result.analysis || "Forced response",
+        shouldSpeak: true,
+        proposedResponse: responseText,
+        isTriggered: true,
+      });
+
+      const entry = await storage.createConversationEntry({
+        roomId,
+        speaker: model.name,
+        content: responseText,
+      });
+
+      await storage.createOutboundCall({
+        roomId,
+        modelId: model.id,
+        triggerReason: result.analysis || "Forced response",
+        responseContent: responseText,
+        status: "completed",
+      });
+
+      console.log(`[force-speak] ${model.name} generated fresh response`);
+      res.status(201).json({ entry, analysis, triggered: true, philosopher: model.name });
+    } catch (error) {
+      console.error("Error in force-speak:", error);
+      res.status(500).json({ error: "Failed to generate response" });
+    }
+  });
+
   // Delete an AI model
   app.delete("/api/models/:modelId", async (req, res) => {
     try {
@@ -479,28 +541,60 @@ export async function registerRoutes(
         return res.status(404).json({ error: "No philosopher at index " + index });
       }
 
-      const analyses = await storage.getAnalysesByRoom(roomId);
-      const latestActiveAnalysis = analyses
-        .filter(a => a.modelId === target.model.id && a.proposedResponse && a.confidence > 0)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-      if (!latestActiveAnalysis) {
-        return res.status(400).json({ error: `${target.model.name} has no response available` });
+      const btnEntries = await storage.getEntriesByRoom(roomId);
+      if (btnEntries.length === 0) {
+        return res.status(400).json({ error: "No conversation to respond to" });
       }
 
-      await storage.markAnalysisTriggered(latestActiveAnalysis.id);
+      // Try to use an existing untriggered analysis first
+      const analyses = await storage.getAnalysesByRoom(roomId);
+      const latestActiveAnalysis = analyses
+        .filter(a => a.modelId === target.model.id && !a.isTriggered && a.proposedResponse && a.confidence > 0)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+      let responseText: string;
+      let triggerReason: string;
+
+      if (latestActiveAnalysis) {
+        responseText = latestActiveAnalysis.proposedResponse!;
+        triggerReason = latestActiveAnalysis.analysis;
+        await storage.markAnalysisTriggered(latestActiveAnalysis.id);
+      } else {
+        // Generate fresh response on the fly
+        const recentEntries = btnEntries.slice(-20);
+        const conversationContext = recentEntries.map((e: { speaker: string; content: string }) => `${e.speaker}: ${e.content}`).join("\n");
+        const llmModel = target.model.llmModel || "gpt-4o-mini";
+        const result = await logLatency(
+          "analysis", llmModel, getProvider(llmModel),
+          () => analyzeConversation(llmModel, target.model.name, target.model.description || "", target.model.persona, conversationContext),
+          { roomId, modelId: target.model.id, metadata: { philosopherName: target.model.name, source: "usb-button" } }
+        );
+        responseText = result.response || "I have nothing to add at this time.";
+        triggerReason = result.analysis || "USB button trigger";
+
+        await storage.createModelAnalysis({
+          roomId,
+          modelId: target.model.id,
+          conversationEntryId: btnEntries[btnEntries.length - 1].id,
+          confidence: result.confidence || 50,
+          analysis: triggerReason,
+          shouldSpeak: true,
+          proposedResponse: responseText,
+          isTriggered: true,
+        });
+      }
 
       const entry = await storage.createConversationEntry({
         roomId,
         speaker: target.model.name,
-        content: latestActiveAnalysis.proposedResponse!,
+        content: responseText,
       });
 
       await storage.createOutboundCall({
         roomId,
         modelId: target.model.id,
-        triggerReason: latestActiveAnalysis.analysis,
-        responseContent: latestActiveAnalysis.proposedResponse!,
+        triggerReason,
+        responseContent: responseText,
         status: "completed",
       });
 

@@ -154,36 +154,31 @@ export default function Dashboard() {
     const model = models.find(m => m.id === modelId);
     if (!model || !room?.id) return;
 
-    const modelAn = analyses.filter((a) => a.modelId === model.id);
-    const latestEntryId = entries.length > 0 ? entries[entries.length - 1].id : 0;
-    
-    const latestActiveAnalysis = modelAn
-      .filter(a => !a.isTriggered && a.proposedResponse && a.confidence > 0)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-    if (!latestActiveAnalysis) {
+    if (entries.length === 0) {
       toast({
         title: `${model.name} has nothing to say`,
-        description: "No active analysis available. Start a conversation first.",
+        description: "Start a conversation first so they have something to respond to.",
       });
       return;
     }
 
-    const analysisEntryId = latestActiveAnalysis.conversationEntryId || 0;
-    const messagesSinceAnalysis = latestEntryId - analysisEntryId;
-    const decayFactor = Math.max(0, 1 - (messagesSinceAnalysis * 0.15));
-    const confidence = Math.round(latestActiveAnalysis.confidence * decayFactor * (model.confidenceMultiplier ?? 1));
-    
-    if (confidence <= 50) {
-      toast({
-        title: `${model.name} — confidence too low`,
-        description: `Current: ${confidence}%. Their insight has decayed. Generate new conversation to refresh.`,
-      });
-      return;
-    }
+    toast({
+      title: `${model.name} is thinking...`,
+      description: "Generating a response",
+    });
 
     try {
-      await apiRequest("POST", `/api/analyses/${latestActiveAnalysis.id}/trigger`, {});
+      const res = await fetch(`/api/models/${modelId}/force-speak`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: room.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error || "Failed to trigger response", variant: "destructive" });
+        return;
+      }
       
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", room.id, "analyses"] });
@@ -193,24 +188,6 @@ export default function Dashboard() {
         title: `${model.name} spoke!`,
         description: "Response added to the conversation",
       });
-
-      if (voiceEnabled && latestActiveAnalysis.proposedResponse) {
-        const audioResponse = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            text: latestActiveAnalysis.proposedResponse,
-            voice: model.voice || "alloy"
-          }),
-        });
-        
-        if (audioResponse.ok) {
-          const audioBlob = await audioResponse.blob();
-          const audioUrl = URL.createObjectURL(audioBlob);
-          const audio = new Audio(audioUrl);
-          audio.play();
-        }
-      }
     } catch (error) {
       toast({
         title: "Error",
@@ -218,7 +195,7 @@ export default function Dashboard() {
         variant: "destructive",
       });
     }
-  }, [models, analyses, entries, room, toast, voiceEnabled]);
+  }, [models, entries, room, toast]);
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
