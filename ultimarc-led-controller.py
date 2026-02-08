@@ -131,16 +131,17 @@ class USBButtonDevice:
             ("feature[0,0,0,R,G,B]",     lambda: self.device.send_feature_report([0x00, 0x00, 0x00, r, g, b])),
         ]
 
+        any_ok = False
         for name, fn in methods:
             try:
                 fn()
                 if verbose:
                     print("    [%d] %s -> OK" % (self.index, name))
-                return True
+                any_ok = True
             except Exception as e:
                 if verbose:
                     print("    [%d] %s -> FAIL: %s" % (self.index, name, e))
-        return False
+        return any_ok
 
     def set_color_bruteforce(self, r, g, b):
         """Try ALL write methods on this device. Used during testing to find what works."""
