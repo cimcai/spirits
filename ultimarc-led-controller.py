@@ -194,11 +194,9 @@ class USBButtonDevice:
             self.device = None
 
 
-def find_usb_buttons(led_indices=None, bruteforce=False):
-    """Find USBButton devices. If led_indices is provided, only open those
-    specific interface indices (0-based). Otherwise open all."""
+def enumerate_usb_buttons():
+    """Enumerate all USBButton HID interfaces and return unique list."""
     devices = hid.enumerate(ULTIMARC_VENDOR_ID, USBBUTTON_PRODUCT_ID)
-
     seen_paths = set()
     unique_devices = []
     for dev in devices:
@@ -206,6 +204,13 @@ def find_usb_buttons(led_indices=None, bruteforce=False):
         if path not in seen_paths:
             seen_paths.add(path)
             unique_devices.append(dev)
+    return unique_devices
+
+
+def find_usb_buttons(led_indices=None, bruteforce=False):
+    """Find USBButton devices. If led_indices is provided, only open those
+    specific interface indices (0-based). Otherwise open all."""
+    unique_devices = enumerate_usb_buttons()
 
     print("Found %d USBButton HID interface(s)" % len(unique_devices))
     for i, dev in enumerate(unique_devices):
@@ -244,111 +249,113 @@ def find_usb_buttons(led_indices=None, bruteforce=False):
 # Multi-button controller
 # ---------------------------------------------------------------------------
 
+class PhysicalButton:
+    """Represents one physical USBButton with ALL its HID interfaces opened.
+    Writes LED commands to ALL interfaces (since we don't know which one
+    actually controls the LED). Reads input from all interfaces too."""
+
+    def __init__(self, button_num, interface_devices):
+        self.button_num = button_num
+        self.devices = interface_devices  # list of USBButtonDevice
+
+    def set_color(self, r, g, b):
+        for dev in self.devices:
+            dev.set_color(r, g, b)
+
+    def check_press(self):
+        for dev in self.devices:
+            data = dev.read_input()
+            if data:
+                return True
+        return False
+
+    def close(self):
+        for dev in self.devices:
+            dev.set_color(0, 0, 0)
+            dev.close()
+
+
 class ButtonController:
     def __init__(self, bruteforce=False):
-        self.buttons = []
-        self.input_readers = []  # list of (button_index, hid_device) for press detection
+        self.physical_buttons = []  # list of PhysicalButton
         self.is_real = False
         self.bruteforce = bruteforce
 
     def connect(self):
+        unique_devices = enumerate_usb_buttons()
+        total = len(unique_devices)
+
+        if not unique_devices:
+            print("\n  No USBButtons could be opened")
+            return False
+
+        print("Found %d USBButton HID interface(s)" % total)
+        for i, dev in enumerate(unique_devices):
+            iface = dev.get("interface_number", "?")
+            usage = dev.get("usage", "?")
+            usage_page = dev.get("usage_page", "?")
+            marker = " <-- LED" if i in BUTTON_INTERFACES else ""
+            print("  [%d] interface=%s usage_page=0x%s usage=0x%s%s" % (
+                i, iface,
+                ("%04X" % usage_page) if isinstance(usage_page, int) else str(usage_page),
+                ("%04X" % usage) if isinstance(usage, int) else str(usage),
+                marker,
+            ))
+
         if self.bruteforce:
-            self.buttons = find_usb_buttons(bruteforce=True)
-        else:
-            self.buttons = find_usb_buttons(led_indices=BUTTON_INTERFACES)
-        if self.buttons:
+            buttons = []
+            for i, dev_info in enumerate(unique_devices):
+                btn = USBButtonDevice(dev_info["path"], i + 1)
+                if btn.connect():
+                    buttons.append(btn)
+            self.physical_buttons = [PhysicalButton(1, buttons)]
+            self.is_real = bool(buttons)
+            return self.is_real
+
+        for btn_num_0, led_idx in enumerate(BUTTON_INTERFACES):
+            start = led_idx
+            end = min(led_idx + 4, total)
+            devs = []
+            for i in range(start, end):
+                btn = USBButtonDevice(unique_devices[i]["path"], btn_num_0 + 1)
+                if btn.connect():
+                    devs.append(btn)
+            if devs:
+                self.physical_buttons.append(PhysicalButton(btn_num_0 + 1, devs))
+
+        if self.physical_buttons:
             self.is_real = True
-            print("\n  %d button(s) ready for LED control" % len(self.buttons))
-            if not self.bruteforce:
-                print("  Mapped to interfaces: %s" % BUTTON_INTERFACES)
-            self._open_input_readers()
+            print("\n  %d physical button(s) ready" % len(self.physical_buttons))
+            for pb in self.physical_buttons:
+                print("    Button %d: %d interface(s) opened" % (pb.button_num, len(pb.devices)))
             return True
         else:
             print("\n  No USBButtons could be opened")
             return False
 
-    def _open_input_readers(self):
-        """Open non-LED HID interfaces for reading button presses.
-        Each physical USBButton typically exposes ~4 consecutive interfaces.
-        The LED is on one (e.g. 0, 4, 8) and input may come from any nearby one.
-        We assign each interface to the nearest configured LED interface."""
-        all_devices = hid.enumerate(ULTIMARC_VENDOR_ID, USBBUTTON_PRODUCT_ID)
-        seen_paths = set()
-        unique = []
-        for dev in all_devices:
-            path = dev.get("path", b"")
-            if path not in seen_paths:
-                seen_paths.add(path)
-                unique.append(dev)
-
-        led_set = set(BUTTON_INTERFACES)
-        opened = 0
-        for iface_idx, dev_info in enumerate(unique):
-            if iface_idx in led_set:
-                continue
-            btn_num = self._nearest_button(iface_idx)
-            if btn_num is None:
-                continue
-            try:
-                d = hid.device()
-                d.open_path(dev_info["path"])
-                d.set_nonblocking(1)
-                self.input_readers.append((btn_num, d))
-                opened += 1
-            except Exception:
-                pass
-        if opened:
-            print("  Opened %d extra interface(s) for button press detection" % opened)
-
-    def _nearest_button(self, iface_idx):
-        """Given an HID interface index, find the closest LED interface and
-        return its button number (1-based), or None if too far away."""
-        best_btn = None
-        best_dist = 999
-        for btn_num_0, led_idx in enumerate(BUTTON_INTERFACES):
-            dist = abs(iface_idx - led_idx)
-            if dist < best_dist and dist <= 3:
-                best_dist = dist
-                best_btn = btn_num_0 + 1
-        return best_btn
-
     def check_button_presses(self):
-        """Check all devices for HID input reports. Returns list of button indices (1-3) that were pressed."""
-        pressed = set()
-        for btn_idx, btn in enumerate(self.buttons):
-            data = btn.read_input()
-            if data:
-                pressed.add(btn_idx + 1)
-        for btn_num, dev in self.input_readers:
-            try:
-                data = dev.read(64)
-                if data:
-                    pressed.add(btn_num)
-            except Exception:
-                pass
-        return list(pressed)
+        """Check all buttons for HID input reports. Returns list of button indices (1-3) that were pressed."""
+        pressed = []
+        for pb in self.physical_buttons:
+            if pb.check_press():
+                pressed.append(pb.button_num)
+        return pressed
 
     def set_button_color(self, index, r, g, b):
-        if 1 <= index <= len(self.buttons):
-            self.buttons[index - 1].set_color(r, g, b)
+        for pb in self.physical_buttons:
+            if pb.button_num == index:
+                pb.set_color(r, g, b)
 
     def set_all_color(self, r, g, b):
-        for btn in self.buttons:
-            btn.set_color(r, g, b)
+        for pb in self.physical_buttons:
+            pb.set_color(r, g, b)
 
     def close(self):
-        for btn in self.buttons:
-            btn.set_color(0, 0, 0)
-            btn.close()
-        for _, dev in self.input_readers:
-            try:
-                dev.close()
-            except Exception:
-                pass
-        self.input_readers = []
+        for pb in self.physical_buttons:
+            pb.close()
 
     def count(self):
-        return len(self.buttons)
+        return len(self.physical_buttons)
 
 
 class SimulatedController:
