@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
+import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
 
 async function logLatency(
   operation: string,
@@ -76,6 +77,11 @@ export async function registerRoutes(
         },
         hardware: {
           ledStatus: { method: "GET", path: "/api/led-status", description: "LED brightness values for Ultimarc controllers", params: { roomId: "number (default 1)" } },
+        },
+        personaplex: {
+          status: { method: "GET", path: "/api/personaplex/status", description: "Check PersonaPlex server health and get connection info" },
+          configure: { method: "POST", path: "/api/personaplex/configure", description: "Update PersonaPlex configuration", body: { serverUrl: "string (WebSocket URL)", textPrompt: "string (persona)", voicePrompt: "string (voice file)" } },
+          trigger: { method: "POST", path: "/api/personaplex/trigger", description: "Get PersonaPlex connection info for voice interaction", body: { roomId: "number (default 1)" } },
         },
         moltbook: {
           post: { method: "POST", path: "/api/moltbook/post", description: "Post to Moltbook (requires MOLTBOOK_API_KEY)", body: { title: "string", content: "string", submolt: "string (default 'general')" } },
@@ -690,6 +696,88 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch LED status" });
     }
   });
+
+  // ==================== PersonaPlex Integration ====================
+  
+  // Get PersonaPlex server status and connection info
+  app.get("/api/personaplex/status", async (req, res) => {
+    try {
+      const serverUrl = (req.query.serverUrl as string) || PERSONAPLEX_DEFAULT_CONFIG.serverUrl;
+      const isHealthy = await checkPersonaPlexHealth(serverUrl);
+      const client = getPersonaPlexClient();
+      
+      res.json({
+        available: isHealthy,
+        serverUrl: serverUrl.replace("/ws", ""),
+        wsUrl: serverUrl,
+        config: client.getServerInfo(),
+        connectionGuide: {
+          description: "PersonaPlex provides full-duplex voice AI for real-time conversations",
+          webUI: serverUrl.replace("/ws", "").replace("wss://", "https://"),
+          wsEndpoint: serverUrl,
+          params: {
+            text_prompt: "Persona description (who the AI should be)",
+            voice_prompt: "Voice file (e.g., VARIETY_M1.pt)",
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Error checking PersonaPlex status:", error);
+      res.status(500).json({ error: "Failed to check PersonaPlex status", available: false });
+    }
+  });
+
+  // Update PersonaPlex configuration
+  app.post("/api/personaplex/configure", async (req, res) => {
+    try {
+      const { serverUrl, textPrompt, voicePrompt } = req.body;
+      const client = getPersonaPlexClient({
+        serverUrl: serverUrl || undefined,
+        textPrompt: textPrompt || undefined,
+        voicePrompt: voicePrompt || undefined,
+      });
+      
+      res.json({
+        success: true,
+        config: client.getServerInfo(),
+      });
+    } catch (error) {
+      console.error("Error configuring PersonaPlex:", error);
+      res.status(500).json({ error: "Failed to configure PersonaPlex" });
+    }
+  });
+
+  // Trigger PersonaPlex philosopher to speak (returns connection info for client)
+  app.post("/api/personaplex/trigger", async (req, res) => {
+    try {
+      const roomId = req.body.roomId || 1;
+      const entries = await storage.getEntriesByRoom(roomId);
+      
+      // Build conversation context
+      const conversationContext = entries
+        .slice(-10)
+        .map((e) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+
+      const client = getPersonaPlexClient();
+      const serverInfo = client.getServerInfo();
+      
+      // For PersonaPlex, we return the WebSocket connection info
+      // The frontend handles the actual voice connection
+      res.json({
+        type: "personaplex_voice",
+        connectionUrl: client.getConnectionUrl(),
+        serverInfo,
+        context: conversationContext,
+        instructions: "Connect to the WebSocket URL for full-duplex voice conversation. The AI will respond as the configured persona.",
+      });
+    } catch (error) {
+      console.error("Error triggering PersonaPlex:", error);
+      res.status(500).json({ error: "Failed to trigger PersonaPlex" });
+    }
+  });
+
+  // ==================== End PersonaPlex Integration ====================
 
   // Get calls for a room
   app.get("/api/rooms/:roomId/calls", async (req, res) => {
