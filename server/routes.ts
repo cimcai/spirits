@@ -379,7 +379,12 @@ export async function registerRoutes(
       
       const transcription = await logLatency(
         "transcription", "gpt-4o-mini-transcribe", "openai",
-        () => openai.audio.transcriptions.create({ file, model: "gpt-4o-mini-transcribe", language: "en" }),
+        () => openai.audio.transcriptions.create({
+          file,
+          model: "gpt-4o-mini-transcribe",
+          language: "en",
+          prompt: "This is a conversation in English about philosophy, consciousness, and ideas.",
+        }),
         { roomId: roomId ?? undefined, metadata: { inputSize: req.file.buffer.length } }
       );
 
