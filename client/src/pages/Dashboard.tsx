@@ -22,6 +22,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showPersonaPlex, setShowPersonaPlex] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem("voiceEnabled");
     return saved !== null ? JSON.parse(saved) : true;
@@ -309,17 +310,19 @@ export default function Dashboard() {
               </Badge>
             )}
             <Button 
-              variant="default" 
+              variant={showPersonaPlex ? "destructive" : "default"}
               size="sm"
-              className="bg-green-500 hover:bg-green-600 text-white gap-2"
+              className={showPersonaPlex ? "" : "bg-green-500 hover:bg-green-600 text-white gap-2"}
               onClick={() => {
-                window.open('https://cjuzwdji4o9zi2-8998.proxy.runpod.net', 'personaplex_voice', 'width=800,height=600');
-                toast({ title: "PersonaPlex Voice", description: "Voice AI opened - speak with Joscha!" });
+                setShowPersonaPlex(!showPersonaPlex);
+                if (!showPersonaPlex) {
+                  toast({ title: "PersonaPlex Voice", description: "Voice AI ready - click Connect to speak!" });
+                }
               }}
               data-testid="button-personaplex"
             >
               <Mic className="h-4 w-4" />
-              PersonaPlex Voice
+              {showPersonaPlex ? "Close Voice" : "PersonaPlex Voice"}
             </Button>
             <Link href="/analytics">
               <Button variant="ghost" size="icon" data-testid="button-analytics">
@@ -347,6 +350,25 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {showPersonaPlex && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-4xl h-[80vh] bg-white rounded-lg overflow-hidden shadow-2xl">
+            <button 
+              onClick={() => setShowPersonaPlex(false)}
+              className="absolute top-2 right-2 z-10 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
+            >
+              ✕ Close
+            </button>
+            <iframe 
+              src="https://cjuzwdji4o9zi2-8998.proxy.runpod.net/?voice=NATURAL_M0.pt"
+              className="w-full h-full border-0"
+              allow="microphone; camera"
+              title="PersonaPlex Voice AI"
+            />
+          </div>
+        </div>
+      )}
 
       {ttsSpeaker && (
         <div className="sticky top-[65px] z-50 bg-black text-white text-center py-2 text-sm font-medium animate-pulse" data-testid="text-tts-speaking">
