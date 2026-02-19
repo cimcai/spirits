@@ -163,6 +163,147 @@ export async function registerRoutes(
     }
   });
 
+  // Aggregated time-range export — conversation + philosopher responses + costs for a time window
+  app.get("/api/rooms/:roomId/export/timerange", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const room = await storage.getRoom(roomId);
+      if (!room) return res.status(404).json({ error: "Room not found" });
+
+      const start = req.query.start ? new Date(req.query.start as string) : null;
+      const end = req.query.end ? new Date(req.query.end as string) : null;
+      const label = (req.query.label as string) || "";
+      const format = (req.query.format as string) || "json";
+
+      if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ error: "Valid start and end query params required (ISO date strings)" });
+      }
+      if (start > end) {
+        return res.status(400).json({ error: "Start must be before end" });
+      }
+
+      const allEntries = await storage.getEntriesByRoom(roomId);
+      const entries = allEntries.filter(e => {
+        const t = new Date(e.timestamp);
+        return t >= start && t <= end;
+      });
+
+      const allCalls = await storage.getCallsByRoom(roomId);
+      const calls = allCalls.filter(c => {
+        const t = new Date(c.createdAt);
+        return t >= start && t <= end;
+      });
+
+      const allLogs = await storage.getLatencyLogs(10000);
+      const logs = allLogs.filter(l => {
+        const t = new Date(l.createdAt);
+        return t >= start && t <= end && (l.roomId === null || l.roomId === roomId);
+      });
+
+      const COST_PER_CALL: Record<string, Record<string, number>> = {
+        "gpt-4o-mini": { analysis: 0.0003, dialogue_generation: 0.0005 },
+        "gpt-4o-mini-transcribe": { transcription: 0.003 },
+        "gpt-audio": { tts: 0.015 },
+        "claude-3-5-haiku-latest": { analysis: 0.0004 },
+        "claude-sonnet-4-20250514": { analysis: 0.003 },
+        "deepseek/deepseek-chat-v3-0324": { analysis: 0.0003 },
+        "x-ai/grok-3-mini-beta": { analysis: 0.0003 },
+        "personaplex": { tts: 0 },
+      };
+
+      let totalCost = 0;
+      const costByOperation: Record<string, { count: number; cost: number }> = {};
+      for (const log of logs) {
+        const callCost = log.success ? (COST_PER_CALL[log.model]?.[log.operation] ?? 0.001) : 0;
+        totalCost += callCost;
+        if (!costByOperation[log.operation]) costByOperation[log.operation] = { count: 0, cost: 0 };
+        costByOperation[log.operation].count++;
+        costByOperation[log.operation].cost += callCost;
+      }
+      for (const key in costByOperation) {
+        costByOperation[key].cost = Math.round(costByOperation[key].cost * 10000) / 10000;
+      }
+
+      const durationMs = end.getTime() - start.getTime();
+      const durationHours = Math.round(durationMs / 3600000 * 10) / 10;
+
+      const uniqueSpeakers = Array.from(new Set(entries.map(e => e.speaker)));
+      const philosophersWhoSpoke = Array.from(new Set(calls.map(c => c.modelId)));
+
+      const exportData = {
+        label: label || `Export ${start.toISOString().slice(0, 16)} to ${end.toISOString().slice(0, 16)}`,
+        room: room.name,
+        timeRange: {
+          start: start.toISOString(),
+          end: end.toISOString(),
+          durationHours,
+        },
+        summary: {
+          conversationEntries: entries.length,
+          philosopherResponses: calls.length,
+          uniqueSpeakers,
+          philosophersWhoSpoke: philosophersWhoSpoke.length,
+          apiCalls: logs.length,
+          estimatedCost: Math.round(totalCost * 10000) / 10000,
+          costByOperation,
+        },
+        conversation: entries.map(e => ({
+          speaker: e.speaker,
+          content: e.content,
+          timestamp: e.timestamp,
+        })),
+        philosopherResponses: calls.map(c => ({
+          modelId: c.modelId,
+          triggerReason: c.triggerReason,
+          responseContent: c.responseContent,
+          createdAt: c.createdAt,
+        })),
+        exportedAt: new Date().toISOString(),
+      };
+
+      if (format === "txt") {
+        const headerLines = [
+          label ? `Session: ${label}` : `Export: ${room.name}`,
+          `Time: ${start.toLocaleString()} — ${end.toLocaleString()} (${durationHours}h)`,
+          `Speakers: ${uniqueSpeakers.join(", ")}`,
+          `Entries: ${entries.length} | Philosopher Responses: ${calls.length} | API Calls: ${logs.length}`,
+          `Estimated Cost: $${exportData.summary.estimatedCost}`,
+          "—".repeat(60),
+          "",
+        ];
+        const convLines = entries.map(e => {
+          const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
+          return `[${time}] ${e.speaker}: ${e.content}`;
+        });
+        const philLines = calls.length > 0 ? [
+          "",
+          "—".repeat(60),
+          "PHILOSOPHER RESPONSES",
+          "—".repeat(60),
+          "",
+          ...calls.map(c => {
+            const time = c.createdAt ? new Date(c.createdAt).toLocaleTimeString() : "";
+            return `[${time}] Spirit #${c.modelId}: ${c.responseContent}`;
+          }),
+        ] : [];
+        const text = [...headerLines, ...convLines, ...philLines].join("\n");
+
+        const fileLabel = label ? label.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40) : start.toISOString().slice(0, 10);
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="session-${fileLabel}.txt"`);
+        return res.send(text);
+      }
+
+      const fileLabel = label ? label.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40) : start.toISOString().slice(0, 10);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="session-${fileLabel}.json"`);
+      return res.json(exportData);
+    } catch (error) {
+      console.error("Error exporting time range:", error);
+      res.status(500).json({ error: "Failed to export time range" });
+    }
+  });
+
   // Add a conversation entry and trigger AI analysis
   app.post("/api/rooms/:roomId/entries", async (req, res) => {
     try {

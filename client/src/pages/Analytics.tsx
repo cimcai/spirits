@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
-import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign } from "lucide-react";
+import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson } from "lucide-react";
 import type { LatencyLog } from "@shared/schema";
 
 interface LatencySummary {
@@ -39,7 +41,7 @@ function formatTime(dateStr: string): string {
 }
 
 export default function Analytics() {
-  const [activeTab, setActiveTab] = useState<"summary" | "costs" | "logs">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "costs" | "logs" | "export">("summary");
 
   const { data: summary, isLoading: summaryLoading } = useQuery<LatencySummary>({
     queryKey: ["/api/latency/summary"],
@@ -82,6 +84,14 @@ export default function Analytics() {
               Costs
             </Button>
             <Button
+              variant={activeTab === "export" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveTab("export")}
+              data-testid="button-tab-export"
+            >
+              Export
+            </Button>
+            <Button
               variant={activeTab === "logs" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("logs")}
@@ -98,6 +108,8 @@ export default function Analytics() {
           <SummaryView summary={summary} isLoading={summaryLoading} />
         ) : activeTab === "costs" ? (
           <CostsView summary={summary} isLoading={summaryLoading} />
+        ) : activeTab === "export" ? (
+          <ExportView />
         ) : (
           <LogsView logs={logs} isLoading={logsLoading} />
         )}
@@ -376,6 +388,234 @@ function CostsView({ summary, isLoading }: { summary?: LatencySummary; isLoading
           </p>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ExportView() {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const { data: room } = useQuery<{ id: number; name: string }>({
+    queryKey: ["/api/rooms/active"],
+  });
+  const roomId = room?.id ?? 1;
+  
+  const [label, setLabel] = useState("");
+  const [startDate, setStartDate] = useState(yesterday.toISOString().slice(0, 10));
+  const [startTime, setStartTime] = useState("09:00");
+  const [endDate, setEndDate] = useState(yesterday.toISOString().slice(0, 10));
+  const [endTime, setEndTime] = useState("12:00");
+  const [preview, setPreview] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const buildUrl = useCallback((format: string) => {
+    const start = new Date(`${startDate}T${startTime}:00`).toISOString();
+    const end = new Date(`${endDate}T${endTime}:00`).toISOString();
+    const params = new URLSearchParams({ start, end, format });
+    if (label) params.set("label", label);
+    return `/api/rooms/${roomId}/export/timerange?${params.toString()}`;
+  }, [startDate, startTime, endDate, endTime, label, roomId]);
+
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    try {
+      const resp = await fetch(buildUrl("json"));
+      const data = await resp.json();
+      setPreview(data);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [buildUrl]);
+
+  const quickSelect = useCallback((hoursAgo: number, duration: number, presetLabel: string) => {
+    const end = new Date(now.getTime() - hoursAgo * 3600000);
+    const start = new Date(end.getTime() - duration * 3600000);
+    setStartDate(start.toISOString().slice(0, 10));
+    setStartTime(start.toISOString().slice(11, 16));
+    setEndDate(end.toISOString().slice(0, 10));
+    setEndTime(end.toISOString().slice(11, 16));
+    setLabel(presetLabel);
+    setPreview(null);
+  }, [now]);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Session Export</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-sm text-muted-foreground mb-2 block">Quick Select</Label>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => quickSelect(0, 1, "Last Hour")} data-testid="button-quick-1h">
+                Last 1h
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => quickSelect(0, 3, "Last 3 Hours")} data-testid="button-quick-3h">
+                Last 3h
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => quickSelect(0, 6, "Last 6 Hours")} data-testid="button-quick-6h">
+                Last 6h
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => quickSelect(0, 24, "Last 24 Hours")} data-testid="button-quick-24h">
+                Last 24h
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                const y = new Date(now.getTime() - 24 * 3600000);
+                setStartDate(y.toISOString().slice(0, 10));
+                setStartTime("00:00");
+                setEndDate(y.toISOString().slice(0, 10));
+                setEndTime("23:59");
+                setLabel("Yesterday");
+                setPreview(null);
+              }} data-testid="button-quick-yesterday">
+                Yesterday (Full Day)
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm">Start</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => { setStartDate(e.target.value); setPreview(null); }}
+                  data-testid="input-start-date"
+                />
+                <Input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => { setStartTime(e.target.value); setPreview(null); }}
+                  data-testid="input-start-time"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">End</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => { setEndDate(e.target.value); setPreview(null); }}
+                  data-testid="input-end-date"
+                />
+                <Input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => { setEndTime(e.target.value); setPreview(null); }}
+                  data-testid="input-end-time"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm">Session Label (optional)</Label>
+            <Input
+              placeholder="e.g. Hackathon Day 1, Evening Discussion..."
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              data-testid="input-session-label"
+            />
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" onClick={loadPreview} disabled={previewLoading} data-testid="button-preview">
+              {previewLoading ? "Loading..." : "Preview"}
+            </Button>
+            <a href={buildUrl("json")} download>
+              <Button data-testid="button-export-json">
+                <FileJson className="w-4 h-4 mr-2" />
+                Export JSON
+              </Button>
+            </a>
+            <a href={buildUrl("txt")} download>
+              <Button variant="outline" data-testid="button-export-txt">
+                <FileText className="w-4 h-4 mr-2" />
+                Export Text
+              </Button>
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
+      {preview && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{preview.label || "Export Preview"}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Duration</p>
+                <p className="text-lg font-bold" data-testid="text-preview-duration">{preview.timeRange?.durationHours}h</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Conversation Entries</p>
+                <p className="text-lg font-bold" data-testid="text-preview-entries">{preview.summary?.conversationEntries}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Philosopher Responses</p>
+                <p className="text-lg font-bold" data-testid="text-preview-responses">{preview.summary?.philosopherResponses}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Est. Cost</p>
+                <p className="text-lg font-bold" data-testid="text-preview-cost">{formatCost(preview.summary?.estimatedCost || 0)}</p>
+              </div>
+            </div>
+
+            {preview.summary?.uniqueSpeakers?.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Speakers</p>
+                <div className="flex gap-1 flex-wrap">
+                  {preview.summary.uniqueSpeakers.map((s: string) => (
+                    <Badge key={s} variant="secondary">{s}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.summary?.costByOperation && Object.keys(preview.summary.costByOperation).length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">API Calls by Type</p>
+                <div className="flex gap-3 flex-wrap text-xs">
+                  {Object.entries(preview.summary.costByOperation as Record<string, { count: number; cost: number }>).map(([op, data]) => (
+                    <span key={op} className="text-muted-foreground">
+                      {OPERATION_LABELS[op] || op}: {data.count} calls ({formatCost(data.cost)})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.conversation?.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Recent Entries (first 10)</p>
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {preview.conversation.slice(0, 10).map((e: any, i: number) => (
+                    <div key={i} className="text-xs">
+                      <span className="text-muted-foreground">[{new Date(e.timestamp).toLocaleTimeString()}]</span>{" "}
+                      <span className="font-medium">{e.speaker}:</span> {e.content}
+                    </div>
+                  ))}
+                  {preview.conversation.length > 10 && (
+                    <p className="text-xs text-muted-foreground">...and {preview.conversation.length - 10} more entries</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {preview.conversation?.length === 0 && (
+              <p className="text-sm text-muted-foreground">No conversation entries found in this time range. Try adjusting the dates.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
