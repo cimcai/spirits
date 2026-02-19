@@ -7,7 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
-import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2 } from "lucide-react";
 import type { LatencyLog } from "@shared/schema";
 
 interface LatencySummary {
@@ -408,6 +409,9 @@ function ExportView() {
   const [endTime, setEndTime] = useState("12:00");
   const [preview, setPreview] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [analysisModel, setAnalysisModel] = useState("claude-sonnet-4-5");
+  const [insight, setInsight] = useState<any>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
 
   const buildUrl = useCallback((format: string) => {
     const start = new Date(`${startDate}T${startTime}:00`).toISOString();
@@ -439,7 +443,32 @@ function ExportView() {
     setEndTime(end.toISOString().slice(11, 16));
     setLabel(presetLabel);
     setPreview(null);
+    setInsight(null);
   }, [now]);
+
+  const analyzeChunk = useCallback(async () => {
+    setInsightLoading(true);
+    setInsight(null);
+    try {
+      const start = new Date(`${startDate}T${startTime}:00`).toISOString();
+      const end = new Date(`${endDate}T${endTime}:00`).toISOString();
+      const resp = await fetch(`/api/rooms/${roomId}/analyze-chunk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start, end, model: analysisModel }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setInsight({ error: data.error || "Analysis failed" });
+      } else {
+        setInsight(data);
+      }
+    } catch {
+      setInsight({ error: "Failed to analyze chunk" });
+    } finally {
+      setInsightLoading(false);
+    }
+  }, [startDate, startTime, endDate, endTime, roomId, analysisModel]);
 
   return (
     <div className="space-y-6">
@@ -541,6 +570,73 @@ function ExportView() {
               </Button>
             </a>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            Analyze with AI
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Feed the selected time range into a pro AI model for its most insightful response about the conversation.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Model</Label>
+              <Select value={analysisModel} onValueChange={setAnalysisModel}>
+                <SelectTrigger className="w-56" data-testid="select-analysis-model">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
+                  <SelectItem value="claude-opus-4-5">Claude Opus 4.5</SelectItem>
+                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                  <SelectItem value="gpt-4.1">GPT-4.1</SelectItem>
+                  <SelectItem value="o3">o3</SelectItem>
+                  <SelectItem value="deepseek/deepseek-r1">DeepSeek R1</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="pt-5">
+              <Button onClick={analyzeChunk} disabled={insightLoading} data-testid="button-analyze-chunk">
+                {insightLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Get Insight
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {insight && !insight.error && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="secondary">{insight.model}</Badge>
+                <span>{insight.entryCount} entries</span>
+                <span>{insight.durationHours}h</span>
+                {insight.speakers && <span>{insight.speakers.join(", ")}</span>}
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none" data-testid="text-ai-insight">
+                {insight.insight.split("\n").map((paragraph: string, i: number) => (
+                  paragraph.trim() ? <p key={i}>{paragraph}</p> : null
+                ))}
+              </div>
+            </div>
+          )}
+
+          {insight?.error && (
+            <p className="text-sm text-destructive" data-testid="text-insight-error">{insight.error}</p>
+          )}
         </CardContent>
       </Card>
 

@@ -304,6 +304,74 @@ export async function registerRoutes(
     }
   });
 
+  // Analyze a conversation time-range chunk with a pro AI model
+  app.post("/api/rooms/:roomId/analyze-chunk", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const room = await storage.getRoom(roomId);
+      if (!room) return res.status(404).json({ error: "Room not found" });
+
+      const { start: startStr, end: endStr, model: modelId } = req.body;
+      if (!startStr || !endStr) {
+        return res.status(400).json({ error: "start and end are required" });
+      }
+      const start = new Date(startStr);
+      const end = new Date(endStr);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+        return res.status(400).json({ error: "Invalid date range" });
+      }
+
+      const chosenModel = modelId && isValidModel(modelId) ? modelId : "claude-sonnet-4-5";
+
+      const allEntries = await storage.getEntriesByRoom(roomId);
+      const entries = allEntries.filter(e => {
+        const t = new Date(e.timestamp);
+        return t >= start && t <= end;
+      });
+
+      if (entries.length === 0) {
+        const durationHours = Math.round((end.getTime() - start.getTime()) / 3600000 * 10) / 10;
+        return res.json({ insight: "No conversation entries found in this time range.", model: chosenModel, entryCount: 0, durationHours, speakers: [] });
+      }
+
+      const transcript = entries.map(e => {
+        const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
+        return `[${time}] ${e.speaker}: ${e.content}`;
+      }).join("\n");
+
+      const durationHours = Math.round((end.getTime() - start.getTime()) / 3600000 * 10) / 10;
+      const uniqueSpeakers = Array.from(new Set(entries.map(e => e.speaker)));
+
+      const systemPrompt = `You are a brilliant interdisciplinary thinker — part philosopher, part scientist, part poet. You have been given a transcript of a ${durationHours}-hour conversation between: ${uniqueSpeakers.join(", ")}.
+
+Your task: Read the entire conversation carefully and produce your single most profound, insightful response. This should be the kind of observation that makes someone stop and think — connecting threads they didn't see, revealing hidden assumptions, or crystallizing the essence of what was really being discussed beneath the surface.
+
+Be specific — reference actual moments, phrases, or tensions from the conversation. Don't be generic. Don't summarize. Illuminate.
+
+Keep your response to 2-3 focused paragraphs maximum.`;
+
+      const result = await logLatency(
+        "chunk_analysis", chosenModel, getProvider(chosenModel),
+        () => chatCompletion(chosenModel, [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Here is the conversation transcript:\n\n${transcript}` },
+        ]),
+        { roomId, metadata: { source: "chunk_analysis", entryCount: entries.length, durationHours } }
+      );
+
+      return res.json({
+        insight: result,
+        model: chosenModel,
+        entryCount: entries.length,
+        durationHours,
+        speakers: uniqueSpeakers,
+      });
+    } catch (error) {
+      console.error("Error analyzing chunk:", error);
+      res.status(500).json({ error: "Failed to analyze conversation chunk" });
+    }
+  });
+
   // Add a conversation entry and trigger AI analysis
   app.post("/api/rooms/:roomId/entries", async (req, res) => {
     try {
