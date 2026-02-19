@@ -943,62 +943,80 @@ export async function registerRoutes(
 
   app.get("/api/latency/summary", async (req, res) => {
     try {
-      const logs = await storage.getLatencyLogs(500);
-      const byOperation: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; errors: number }> = {};
-      const byModel: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number }> = {};
-      const byService: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number }> = {};
+      const logs = await storage.getLatencyLogs(5000);
+      const byOperation: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; errors: number; estimatedCost: number }> = {};
+      const byModel: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; estimatedCost: number }> = {};
+      const byService: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; estimatedCost: number }> = {};
+      let totalCost = 0;
+
+      const COST_PER_CALL: Record<string, Record<string, number>> = {
+        "gpt-4o-mini": { analysis: 0.0003, dialogue_generation: 0.0005 },
+        "gpt-4o-mini-transcribe": { transcription: 0.003 },
+        "gpt-audio": { tts: 0.015 },
+        "claude-3-5-haiku-latest": { analysis: 0.0004 },
+        "claude-sonnet-4-20250514": { analysis: 0.003 },
+        "deepseek/deepseek-chat-v3-0324": { analysis: 0.0003 },
+        "x-ai/grok-3-mini-beta": { analysis: 0.0003 },
+        "personaplex": { tts: 0 },
+      };
 
       for (const log of logs) {
-        // By operation
+        const callCost = COST_PER_CALL[log.model]?.[log.operation] ?? 0.001;
+        const cost = log.success ? callCost : 0;
+        totalCost += cost;
+
         if (!byOperation[log.operation]) {
-          byOperation[log.operation] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0, errors: 0 };
+          byOperation[log.operation] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0, errors: 0, estimatedCost: 0 };
         }
         const op = byOperation[log.operation];
         op.count++;
         op.totalMs += log.latencyMs;
         op.minMs = Math.min(op.minMs, log.latencyMs);
         op.maxMs = Math.max(op.maxMs, log.latencyMs);
+        op.estimatedCost += cost;
         if (!log.success) op.errors++;
 
-        // By model
         if (!byModel[log.model]) {
-          byModel[log.model] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0 };
+          byModel[log.model] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0, estimatedCost: 0 };
         }
         const m = byModel[log.model];
         m.count++;
         m.totalMs += log.latencyMs;
         m.minMs = Math.min(m.minMs, log.latencyMs);
         m.maxMs = Math.max(m.maxMs, log.latencyMs);
+        m.estimatedCost += cost;
 
-        // By service
         if (!byService[log.service]) {
-          byService[log.service] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0 };
+          byService[log.service] = { count: 0, totalMs: 0, avgMs: 0, minMs: Infinity, maxMs: 0, estimatedCost: 0 };
         }
         const s = byService[log.service];
         s.count++;
         s.totalMs += log.latencyMs;
         s.minMs = Math.min(s.minMs, log.latencyMs);
         s.maxMs = Math.max(s.maxMs, log.latencyMs);
+        s.estimatedCost += cost;
       }
 
-      // Calculate averages
       for (const key in byOperation) {
         const o = byOperation[key];
         o.avgMs = Math.round(o.totalMs / o.count);
         if (o.minMs === Infinity) o.minMs = 0;
+        o.estimatedCost = Math.round(o.estimatedCost * 10000) / 10000;
       }
       for (const key in byModel) {
         const m = byModel[key];
         m.avgMs = Math.round(m.totalMs / m.count);
         if (m.minMs === Infinity) m.minMs = 0;
+        m.estimatedCost = Math.round(m.estimatedCost * 10000) / 10000;
       }
       for (const key in byService) {
         const s = byService[key];
         s.avgMs = Math.round(s.totalMs / s.count);
         if (s.minMs === Infinity) s.minMs = 0;
+        s.estimatedCost = Math.round(s.estimatedCost * 10000) / 10000;
       }
 
-      res.json({ byOperation, byModel, byService, totalLogs: logs.length });
+      res.json({ byOperation, byModel, byService, totalLogs: logs.length, totalEstimatedCost: Math.round(totalCost * 10000) / 10000 });
     } catch (error) {
       console.error("Error fetching latency summary:", error);
       res.status(500).json({ error: "Failed to fetch latency summary" });
