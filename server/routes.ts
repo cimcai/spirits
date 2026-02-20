@@ -1739,11 +1739,6 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
   // ============================================================
 
   app.post("/internal/iwakura-scan", async (req, res) => {
-    const referer = req.headers.referer || req.headers.origin || "";
-    if (!referer.includes(req.hostname) && !referer.includes("localhost")) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
     try {
       const roomId = req.body.roomId ? parseInt(req.body.roomId) : 1;
       const { start, end } = req.body;
