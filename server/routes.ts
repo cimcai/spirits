@@ -1250,10 +1250,15 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
   // Text-to-Speech endpoint
   app.post("/api/tts", async (req, res) => {
     try {
-      const { text, voice = "alloy" } = req.body;
+      const { text, voice = "alloy", philosopherName } = req.body;
       
       if (!text || typeof text !== "string") {
         return res.status(400).json({ error: "Text is required" });
+      }
+
+      let systemPrompt = "You are an assistant that performs text-to-speech. Speak with the gravitas and wisdom befitting a philosopher.";
+      if (philosopherName?.toLowerCase() === "iwakura") {
+        systemPrompt = "You are an assistant that performs text-to-speech. Speak very softly and quietly, like a shy introverted young girl. Your delivery is gentle, breathy, hesitant, with delicate pauses between phrases. Speak slowly and almost in a whisper. Your tone is ethereal, distant, and contemplative — as if speaking from somewhere far away.";
       }
 
       const response = await logLatency(
@@ -1263,7 +1268,7 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
           modalities: ["text", "audio"],
           audio: { voice, format: "wav" },
           messages: [
-            { role: "system", content: "You are an assistant that performs text-to-speech. Speak with the gravitas and wisdom befitting a philosopher." },
+            { role: "system", content: systemPrompt },
             { role: "user", content: `Repeat the following text verbatim: ${text}` },
           ],
         }),

@@ -55,7 +55,7 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
       const audioResponse = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: model.voice || "alloy" }),
+        body: JSON.stringify({ text, voice: model.voice || "alloy", philosopherName: model.name }),
       });
       
       if (audioResponse.ok) {

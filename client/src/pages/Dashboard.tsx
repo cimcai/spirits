@@ -256,7 +256,7 @@ export default function Dashboard() {
           const audioResponse = await fetch("/api/tts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: call.responseContent, voice }),
+            body: JSON.stringify({ text: call.responseContent, voice, philosopherName: speakerName }),
           });
           if (audioResponse.ok) {
             const audioBlob = await audioResponse.blob();
