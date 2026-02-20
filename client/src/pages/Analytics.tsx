@@ -563,10 +563,12 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
     setScanLoading(true);
     setScanResult(null);
     try {
+      const start = new Date(`${startDate}T${startTime}:00`).toISOString();
+      const end = new Date(`${endDate}T${endTime}:00`).toISOString();
       const resp = await fetch("/internal/iwakura-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId }),
+        body: JSON.stringify({ roomId, start, end }),
       });
       const data = await resp.json();
       setScanResult(data);
@@ -575,7 +577,7 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
     } finally {
       setScanLoading(false);
     }
-  }, [roomId]);
+  }, [roomId, startDate, startTime, endDate, endTime]);
 
   const saveInsightToStream = useCallback(async () => {
     if (!insight?.insight || insight.savedEntryId || saved) return;

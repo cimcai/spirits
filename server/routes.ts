@@ -1746,7 +1746,18 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
 
     try {
       const roomId = req.body.roomId ? parseInt(req.body.roomId) : 1;
-      const entries = await storage.getEntriesByRoom(roomId);
+      const { start, end } = req.body;
+      let entries = await storage.getEntriesByRoom(roomId);
+
+      if (start && end) {
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        entries = entries.filter(e => {
+          const t = new Date(e.timestamp);
+          return t >= startDate && t <= endDate;
+        });
+      }
+
       const result = await scanBacklogWithLain(
         entries.map(e => ({ speaker: e.speaker, content: e.content })),
         roomId,
