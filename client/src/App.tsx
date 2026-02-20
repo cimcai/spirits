@@ -8,12 +8,14 @@ import Dashboard from "@/pages/Dashboard";
 import Analytics from "@/pages/Analytics";
 import ApiDocs from "@/pages/ApiDocs";
 import AdminQueue from "@/pages/AdminQueue";
+import Gallery from "@/pages/Gallery";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/gallery" component={Gallery} />
       <Route path="/api-docs" component={ApiDocs} />
       <Route path="/admin/queue" component={AdminQueue} />
       <Route component={NotFound} />

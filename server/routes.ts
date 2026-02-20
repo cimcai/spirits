@@ -439,6 +439,14 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
 
       const base64 = imageBuffer.toString("base64");
 
+      const savedArt = await storage.createGeneratedArt({
+        roomId,
+        title: parsed.title,
+        quote: parsed.quote,
+        imagePrompt: parsed.imagePrompt,
+        imageData: base64,
+      });
+
       await storage.createConversationEntry({
         roomId,
         speaker: "Art Generation",
@@ -446,14 +454,54 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
       });
 
       return res.json({
-        image: `data:image/png;base64,${base64}`,
+        image: `/api/art/${savedArt.id}/image`,
         quote: parsed.quote,
         title: parsed.title,
         imagePrompt: parsed.imagePrompt,
+        artId: savedArt.id,
       });
     } catch (error) {
       console.error("Error generating art:", error);
       res.status(500).json({ error: "Failed to generate art" });
+    }
+  });
+
+  // Serve a generated art image by ID
+  app.get("/api/art/:id/image", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const art = await storage.getGeneratedArt(id);
+      if (!art) return res.status(404).json({ error: "Art not found" });
+
+      const imageBuffer = Buffer.from(art.imageData, "base64");
+      res.set("Content-Type", "image/png");
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(imageBuffer);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to serve image" });
+    }
+  });
+
+  // List all archived art (without image data for efficiency)
+  app.get("/api/art", async (_req, res) => {
+    try {
+      const artList = await storage.getAllGeneratedArt();
+      res.json(artList);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch art gallery" });
+    }
+  });
+
+  // Get single art metadata (without image data)
+  app.get("/api/art/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const art = await storage.getGeneratedArt(id);
+      if (!art) return res.status(404).json({ error: "Art not found" });
+      const { imageData, ...metadata } = art;
+      res.json({ ...metadata, imageUrl: `/api/art/${id}/image` });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch art" });
     }
   });
 

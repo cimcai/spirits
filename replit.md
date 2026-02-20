@@ -60,6 +60,7 @@ Preferred communication style: Simple, everyday language.
   - `outboundCalls`: Triggered call records when AI decides to speak
   - `responseRatings`: User ratings (thumbs up/down) for philosopher responses with confidence multiplier impact
   - `latencyLogs`: Performance tracking for all AI operations (transcription, analysis, dialogue, TTS)
+  - `generatedArt`: Permanently archived AI-generated art images (base64 PNG) with title, quote, and prompt metadata
   - `users`: Basic user authentication table
 
 ### Build Configuration

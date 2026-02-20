@@ -1,7 +1,7 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs, responseRatings, pendingSubmissions,
+  rooms, conversationEntries, aiModels, outboundCalls, modelAnalyses, latencyLogs, responseRatings, pendingSubmissions, generatedArt,
   type Room, type InsertRoom,
   type ConversationEntry, type InsertConversationEntry,
   type AiModel, type InsertAiModel,
@@ -11,6 +11,7 @@ import {
   type ResponseRating, type InsertResponseRating,
   type PendingSubmission, type InsertPendingSubmission,
   type User, type InsertUser, users,
+  type GeneratedArt, type InsertGeneratedArt,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -67,6 +68,11 @@ export interface IStorage {
   createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog>;
   getLatencyLogs(limit?: number): Promise<LatencyLog[]>;
   getLatencyLogsByOperation(operation: string): Promise<LatencyLog[]>;
+
+  // Generated Art
+  createGeneratedArt(art: InsertGeneratedArt): Promise<GeneratedArt>;
+  getGeneratedArt(id: number): Promise<GeneratedArt | undefined>;
+  getAllGeneratedArt(): Promise<Omit<GeneratedArt, "imageData">[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -267,6 +273,28 @@ export class DatabaseStorage implements IStorage {
       .where(eq(latencyLogs.operation, operation))
       .orderBy(desc(latencyLogs.createdAt))
       .limit(100);
+  }
+
+  // Generated Art
+  async createGeneratedArt(art: InsertGeneratedArt): Promise<GeneratedArt> {
+    const [created] = await db.insert(generatedArt).values(art).returning();
+    return created;
+  }
+
+  async getGeneratedArt(id: number): Promise<GeneratedArt | undefined> {
+    const [art] = await db.select().from(generatedArt).where(eq(generatedArt.id, id));
+    return art;
+  }
+
+  async getAllGeneratedArt(): Promise<Omit<GeneratedArt, "imageData">[]> {
+    return db.select({
+      id: generatedArt.id,
+      roomId: generatedArt.roomId,
+      title: generatedArt.title,
+      quote: generatedArt.quote,
+      imagePrompt: generatedArt.imagePrompt,
+      createdAt: generatedArt.createdAt,
+    }).from(generatedArt).orderBy(desc(generatedArt.createdAt));
   }
 }
 

@@ -819,7 +819,7 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
                   Download Image
                 </Button>
               </a>
-              <span className="text-xs text-muted-foreground">Saved to conversation stream</span>
+              <span className="text-xs text-muted-foreground">Permanently archived &middot; <a href="/gallery" className="underline">View Gallery</a></span>
             </div>
           </CardContent>
         </Card>
