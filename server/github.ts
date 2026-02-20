@@ -69,7 +69,7 @@ export interface BacklogScanResult {
 export async function scanBacklogWithLain(
   entries: Array<{ speaker: string; content: string }>,
   roomId: number,
-  chatCompletionFn: (model: string, messages: Array<{ role: string; content: string }>, json?: boolean) => Promise<string>,
+  chatCompletionFn: (model: string, messages: Array<{ role: "system" | "user" | "assistant"; content: string }>, json?: boolean) => Promise<string>,
 ): Promise<BacklogScanResult> {
   if (entries.length === 0) {
     return { totalScanned: 0, found: 0, issues: [], message: "No conversation entries to scan" };

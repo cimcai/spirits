@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2, Search, Github } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import type { LatencyLog } from "@shared/schema";
 import { useWebLLM, WEBLLM_MODELS } from "@/hooks/use-webllm";
@@ -419,6 +420,8 @@ function ExportView() {
   const [artLoading, setArtLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
+  const [scanLoading, setScanLoading] = useState(false);
   const webllm = useWebLLM();
   const isLocalModel = WEBLLM_MODELS.some(m => m.id === analysisModel);
 
@@ -555,6 +558,24 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
       setArtLoading(false);
     }
   }, [startDate, startTime, endDate, endTime, roomId, insight]);
+
+  const runIwakuraScan = useCallback(async () => {
+    setScanLoading(true);
+    setScanResult(null);
+    try {
+      const resp = await fetch("/internal/iwakura-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      });
+      const data = await resp.json();
+      setScanResult(data);
+    } catch {
+      setScanResult({ error: "Iwakura could not connect to the Wired" });
+    } finally {
+      setScanLoading(false);
+    }
+  }, [roomId]);
 
   const saveInsightToStream = useCallback(async () => {
     if (!insight?.insight || insight.savedEntryId || saved) return;
@@ -832,6 +853,82 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Search className="w-4 h-4" />
+            Analyze &amp; Make Feature Requests
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Iwakura scans the memory of all past conversations — finding wishes, desires, and ideas hidden between the words — and creates GitHub issues for each one.
+          </p>
+          <Button
+            onClick={runIwakuraScan}
+            disabled={scanLoading}
+            data-testid="button-iwakura-scan"
+          >
+            {scanLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Iwakura is reading the Wired...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4 mr-2" />
+                Let Iwakura Scan
+              </>
+            )}
+          </Button>
+
+          {scanResult && !scanResult.error && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                <Badge variant="secondary">{scanResult.totalScanned} messages scanned</Badge>
+                <Badge variant="secondary">{scanResult.found} wishes found</Badge>
+              </div>
+              <p className="text-sm italic text-muted-foreground" data-testid="text-scan-message">
+                {scanResult.message}
+              </p>
+              {scanResult.issues?.length > 0 && (
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {scanResult.issues.map((issue: any, i: number) => (
+                    <div key={i} className="text-sm border border-border/50 rounded-md p-3 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{issue.speaker}</span>
+                        {issue.issueNumber && (
+                          <a
+                            href={issue.issueUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+                          >
+                            <Github className="w-3 h-3" />
+                            #{issue.issueNumber}
+                          </a>
+                        )}
+                        {issue.error && <Badge variant="destructive" className="text-xs">Failed</Badge>}
+                      </div>
+                      <p className="text-muted-foreground text-xs">{issue.content}</p>
+                      {issue.lainComment && (
+                        <p className="text-xs italic text-muted-foreground/70">
+                          &ldquo;{issue.lainComment}&rdquo; — Iwakura
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {scanResult?.error && (
+            <p className="text-sm text-destructive" data-testid="text-scan-error">{scanResult.error}</p>
+          )}
+        </CardContent>
+      </Card>
 
       {preview && (
         <Card>
