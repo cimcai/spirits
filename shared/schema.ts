@@ -179,5 +179,24 @@ export const insertLatencyLogSchema = createInsertSchema(latencyLogs).omit({
 export type LatencyLog = typeof latencyLogs.$inferSelect;
 export type InsertLatencyLog = z.infer<typeof insertLatencyLogSchema>;
 
+// Generated Art - permanent archive of AI-generated art images
+export const generatedArt = pgTable("generated_art", {
+  id: serial("id").primaryKey(),
+  roomId: integer("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  quote: text("quote").notNull(),
+  imagePrompt: text("image_prompt").notNull(),
+  imageData: text("image_data").notNull(), // base64 PNG
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertGeneratedArtSchema = createInsertSchema(generatedArt).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GeneratedArt = typeof generatedArt.$inferSelect;
+export type InsertGeneratedArt = z.infer<typeof insertGeneratedArtSchema>;
+
 // Re-export chat models for the integration
 export * from "./models/chat";
