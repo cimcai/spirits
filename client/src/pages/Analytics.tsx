@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import type { LatencyLog } from "@shared/schema";
+import { useWebLLM, WEBLLM_MODELS } from "@/hooks/use-webllm";
 
 interface LatencySummary {
   byOperation: Record<string, { count: number; totalMs: number; avgMs: number; minMs: number; maxMs: number; errors: number; estimatedCost: number }>;
@@ -412,6 +414,9 @@ function ExportView() {
   const [analysisModel, setAnalysisModel] = useState("claude-sonnet-4-5");
   const [insight, setInsight] = useState<any>(null);
   const [insightLoading, setInsightLoading] = useState(false);
+  const [streamedText, setStreamedText] = useState("");
+  const webllm = useWebLLM();
+  const isLocalModel = WEBLLM_MODELS.some(m => m.id === analysisModel);
 
   const buildUrl = useCallback((format: string) => {
     const start = new Date(`${startDate}T${startTime}:00`).toISOString();
@@ -449,26 +454,77 @@ function ExportView() {
   const analyzeChunk = useCallback(async () => {
     setInsightLoading(true);
     setInsight(null);
-    try {
-      const start = new Date(`${startDate}T${startTime}:00`).toISOString();
-      const end = new Date(`${endDate}T${endTime}:00`).toISOString();
-      const resp = await fetch(`/api/rooms/${roomId}/analyze-chunk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start, end, model: analysisModel }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setInsight({ error: data.error || "Analysis failed" });
-      } else {
-        setInsight(data);
+    setStreamedText("");
+
+    const startISO = new Date(`${startDate}T${startTime}:00`).toISOString();
+    const endISO = new Date(`${endDate}T${endTime}:00`).toISOString();
+
+    if (isLocalModel) {
+      try {
+        const previewResp = await fetch(buildUrl("json"));
+        const previewData = await previewResp.json();
+
+        if (!previewData.conversation || previewData.conversation.length === 0) {
+          setInsight({ error: "No conversation entries found in this time range." });
+          setInsightLoading(false);
+          return;
+        }
+
+        const transcript = previewData.conversation.map((e: any) => {
+          const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
+          return `[${time}] ${e.speaker}: ${e.content}`;
+        }).join("\n");
+
+        const speakers = previewData.summary?.uniqueSpeakers || [];
+        const durationHours = previewData.timeRange?.durationHours || 0;
+
+        const systemPrompt = `You are a brilliant interdisciplinary thinker. You have been given a transcript of a ${durationHours}-hour conversation between: ${speakers.join(", ")}.
+
+Read the conversation carefully and produce your single most profound, insightful observation. Connect threads the speakers didn't see, reveal hidden assumptions, or crystallize the essence of what was really being discussed.
+
+Be specific — reference actual moments or phrases from the conversation. Keep your response to 2-3 focused paragraphs.`;
+
+        const result = await webllm.chatCompletion(analysisModel, [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Here is the conversation transcript:\n\n${transcript}` },
+        ], (token) => {
+          setStreamedText(prev => prev + token);
+        });
+
+        setInsight({
+          insight: result,
+          model: analysisModel,
+          entryCount: previewData.conversation.length,
+          durationHours,
+          speakers,
+          local: true,
+        });
+      } catch (err: any) {
+        setInsight({ error: err?.message || "Local analysis failed" });
+      } finally {
+        setInsightLoading(false);
+        setStreamedText("");
       }
-    } catch {
-      setInsight({ error: "Failed to analyze chunk" });
-    } finally {
-      setInsightLoading(false);
+    } else {
+      try {
+        const resp = await fetch(`/api/rooms/${roomId}/analyze-chunk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start: startISO, end: endISO, model: analysisModel }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          setInsight({ error: data.error || "Analysis failed" });
+        } else {
+          setInsight(data);
+        }
+      } catch {
+        setInsight({ error: "Failed to analyze chunk" });
+      } finally {
+        setInsightLoading(false);
+      }
     }
-  }, [startDate, startTime, endDate, endTime, roomId, analysisModel]);
+  }, [startDate, startTime, endDate, endTime, roomId, analysisModel, isLocalModel, buildUrl, webllm]);
 
   return (
     <div className="space-y-6">
