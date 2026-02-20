@@ -5,6 +5,7 @@ import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/sche
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
+import { detectFeatureRequest, createFeatureRequestIssue } from "./github";
 
 async function logLatency(
   operation: string,
@@ -516,6 +517,17 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
 
       const entry = await storage.createConversationEntry(validated);
 
+      // Check for feature request phrases and auto-create GitHub issues
+      if (detectFeatureRequest(validated.content)) {
+        createFeatureRequestIssue(validated.speaker, validated.content, roomId)
+          .then(result => {
+            if (result) {
+              console.log(`Feature request detected from ${validated.speaker}: GitHub issue #${result.issueNumber}`);
+            }
+          })
+          .catch(err => console.error("GitHub issue creation error:", err));
+      }
+
       // Get all models and run analysis in parallel
       const models = await storage.getAllAiModels();
       const entries = await storage.getEntriesByRoom(roomId);
@@ -870,6 +882,15 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
           speaker: speakerName,
           content: text,
         });
+
+        // Check for feature request phrases and auto-create GitHub issues
+        if (detectFeatureRequest(text)) {
+          createFeatureRequestIssue(speakerName, text, roomId)
+            .then(result => {
+              if (result) console.log(`Feature request detected from ${speakerName}: GitHub issue #${result.issueNumber}`);
+            })
+            .catch(err => console.error("GitHub issue creation error:", err));
+        }
 
         // Trigger AI analysis for all models
         const models = await storage.getAllAiModels();
@@ -1623,6 +1644,15 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
         speaker,
         content,
       });
+
+      // Check for feature request phrases and auto-create GitHub issues
+      if (detectFeatureRequest(content)) {
+        createFeatureRequestIssue(speaker, content, submission.roomId)
+          .then(result => {
+            if (result) console.log(`Feature request detected from approved submission: GitHub issue #${result.issueNumber}`);
+          })
+          .catch(err => console.error("GitHub issue creation error:", err));
+      }
 
       // Mark as approved
       await storage.updatePendingSubmission(id, {
