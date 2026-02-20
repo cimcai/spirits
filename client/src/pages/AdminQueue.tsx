@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
-import { ArrowLeft, Check, X, Clock, MessageSquare, Send, Pencil } from "lucide-react";
+import { ArrowLeft, Check, X, Clock, MessageSquare, Send, Pencil, Search } from "lucide-react";
 import type { PendingSubmission } from "@shared/schema";
 
 type FilterStatus = "pending" | "approved" | "rejected" | "all";
@@ -204,6 +204,22 @@ export default function AdminQueue() {
     },
   });
 
+  const scanBacklogMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/scan-backlog", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Backlog Scan Complete",
+        description: data.message,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to scan conversation backlog", variant: "destructive" });
+    },
+  });
+
   const handleApprove = (id: number, editedSpeaker?: string, editedContent?: string, reviewNote?: string) => {
     approveMutation.mutate({ id, editedSpeaker, editedContent, reviewNote });
   };
@@ -244,7 +260,7 @@ export default function AdminQueue() {
           )}
         </div>
 
-        <Card className="mb-6">
+        <Card className="mb-4">
           <CardContent className="pt-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
@@ -260,6 +276,27 @@ export default function AdminQueue() {
               >
                 <Send className="w-3 h-3 mr-1" />
                 {inviteMutation.isPending ? "Posting..." : "Post Summary to Moltbook"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Search className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm">AI-scan past conversations for feature requests and create GitHub issues</span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => scanBacklogMutation.mutate()}
+                disabled={scanBacklogMutation.isPending}
+                data-testid="button-scan-backlog"
+              >
+                <Search className="w-3 h-3 mr-1" />
+                {scanBacklogMutation.isPending ? "Scanning..." : "Scan Backlog"}
               </Button>
             </div>
           </CardContent>
