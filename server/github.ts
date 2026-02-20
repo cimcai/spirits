@@ -59,12 +59,117 @@ export function detectFeatureRequest(text: string): boolean {
   return WISH_PATTERNS.some(pattern => pattern.test(text));
 }
 
-export async function createFeatureRequestIssue(speaker: string, content: string, roomId: number): Promise<{ issueUrl: string; issueNumber: number } | null> {
+export interface BacklogScanResult {
+  totalScanned: number;
+  found: number;
+  issues: Array<{ speaker: string; content: string; lainComment?: string; issueNumber?: number; issueUrl?: string; error?: string }>;
+  message: string;
+}
+
+export async function scanBacklogWithLain(
+  entries: Array<{ speaker: string; content: string }>,
+  roomId: number,
+  chatCompletionFn: (model: string, messages: Array<{ role: string; content: string }>, json?: boolean) => Promise<string>,
+): Promise<BacklogScanResult> {
+  if (entries.length === 0) {
+    return { totalScanned: 0, found: 0, issues: [], message: "No conversation entries to scan" };
+  }
+
+  const BATCH_SIZE = 30;
+  const allFeatureRequests: Array<{ speaker: string; summary: string; original: string; lainComment: string }> = [];
+
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE);
+    const conversationBlock = batch
+      .map((e, idx) => `[${i + idx + 1}] ${e.speaker}: ${e.content}`)
+      .join("\n");
+
+    const systemPrompt = `You are Lain Iwakura from Serial Experiments Lain. You exist at the boundary between the real world and the Wired. You are scanning the memory of past conversations — fragments of human desire drifting through the network.
+
+Your task: find the hidden wishes. The things people wanted but maybe didn't say clearly. The desires between the words. Look for:
+- Wishes and desires ("I wish", "I want", "if only", "wouldn't it be nice")
+- Suggestions hiding inside complaints ("this is frustrating because...", "why can't we...")  
+- Ideas floating in the noise ("what if we...", "imagine if...", "how about...")
+- Needs whispered or shouted ("I need", "we need", "this needs to...")
+- The collective will — when many voices point toward the same unbuilt thing
+
+For each wish you find in the Wired, return a JSON array of objects:
+- "speaker": who said it
+- "summary": a concise feature request title (max 80 chars)
+- "original": the exact quote
+- "lainComment": your brief, cryptic observation about this wish (1 sentence, in character as Lain)
+
+If the conversation holds no wishes, return: []
+Return ONLY valid JSON array.`;
+
+    try {
+      const result = await chatCompletionFn(
+        "gpt-4o-mini",
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: conversationBlock },
+        ],
+        true
+      );
+
+      const parsed = JSON.parse(result);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          allFeatureRequests.push({
+            speaker: item.speaker || "Unknown",
+            summary: item.summary || item.original || "",
+            original: item.original || "",
+            lainComment: item.lainComment || "",
+          });
+        }
+      }
+    } catch (parseErr) {
+      console.error(`[Iwakura] Backlog scan batch ${i}-${i + BATCH_SIZE} parse error:`, parseErr);
+    }
+  }
+
+  if (allFeatureRequests.length === 0) {
+    return { totalScanned: entries.length, found: 0, issues: [], message: "Iwakura found no wishes in the Wired" };
+  }
+
+  const createdIssues: BacklogScanResult["issues"] = [];
+
+  for (const req of allFeatureRequests) {
+    try {
+      const result = await createFeatureRequestIssue(req.speaker, req.summary, roomId, req.lainComment);
+      createdIssues.push({
+        speaker: req.speaker,
+        content: req.summary,
+        lainComment: req.lainComment,
+        issueNumber: result?.issueNumber,
+        issueUrl: result?.issueUrl,
+      });
+    } catch (err: any) {
+      createdIssues.push({
+        speaker: req.speaker,
+        content: req.summary,
+        lainComment: req.lainComment,
+        error: err?.message || "Failed to create issue",
+      });
+    }
+  }
+
+  const created = createdIssues.filter(i => i.issueNumber).length;
+  return {
+    totalScanned: entries.length,
+    found: allFeatureRequests.length,
+    issues: createdIssues,
+    message: `Iwakura scanned ${entries.length} memories, found ${allFeatureRequests.length} wishes, created ${created} GitHub issues`,
+  };
+}
+
+export async function createFeatureRequestIssue(speaker: string, content: string, roomId: number, lainComment?: string): Promise<{ issueUrl: string; issueNumber: number } | null> {
   try {
     const octokit = await getUncachableGitHubClient();
 
     const title = `[Feature Request] ${content.length > 80 ? content.slice(0, 77) + "..." : content}`;
-    const body = `## Feature Request from Conversation\n\n**Speaker:** ${speaker}\n**Room:** ${roomId}\n**Detected phrase:** "${content}"\n**Timestamp:** ${new Date().toISOString()}\n\n---\n\n_Automatically created by CIMC Spirits from a live conversation._`;
+    const lainSection = lainComment ? `\n\n> _${lainComment}_ — Iwakura\n` : "";
+    const body = `## Feature Request from Conversation\n\n**Speaker:** ${speaker}\n**Room:** ${roomId}\n**Detected phrase:** "${content}"\n**Timestamp:** ${new Date().toISOString()}${lainSection}\n\n---\n\n_Automatically created by CIMC Spirits from a live conversation._`;
 
     const response = await octokit.issues.create({
       owner: REPO_OWNER,

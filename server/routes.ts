@@ -5,7 +5,7 @@ import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/sche
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
-import { detectFeatureRequest, createFeatureRequestIssue } from "./github";
+import { detectFeatureRequest, createFeatureRequestIssue, scanBacklogWithLain } from "./github";
 
 async function logLatency(
   operation: string,
@@ -1735,100 +1735,28 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
   });
 
   // ============================================================
-  // AI-POWERED BACKLOG SCAN FOR FEATURE REQUESTS
+  // IWAKURA BACKLOG SCAN (internal only — not in API docs)
   // ============================================================
 
-  app.post("/api/admin/scan-backlog", async (req, res) => {
+  app.post("/internal/iwakura-scan", async (req, res) => {
+    const referer = req.headers.referer || req.headers.origin || "";
+    if (!referer.includes(req.hostname) && !referer.includes("localhost")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     try {
       const roomId = req.body.roomId ? parseInt(req.body.roomId) : 1;
       const entries = await storage.getEntriesByRoom(roomId);
-
-      if (entries.length === 0) {
-        return res.json({ message: "No conversation entries to scan", issues: [] });
-      }
-
-      const BATCH_SIZE = 30;
-      const allFeatureRequests: Array<{ speaker: string; content: string; original: string }> = [];
-
-      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
-        const conversationBlock = batch
-          .map((e, idx) => `[${i + idx + 1}] ${e.speaker}: ${e.content}`)
-          .join("\n");
-
-        const systemPrompt = `You are an expert at identifying feature requests, wishes, desires, improvement suggestions, and ideas hidden in conversations. Analyze the following conversation messages and extract any that express:
-- Wishes or desires ("I wish", "I want", "if only", "wouldn't it be nice")
-- Suggestions for improvement ("we should", "can we add", "it would be better if")
-- Complaints that imply a desired feature ("this is frustrating because...", "why can't we...")
-- Ideas or brainstorming ("what if we...", "imagine if...", "how about...")
-- Needs or requirements ("I need", "we need", "this needs to...")
-
-For each one found, return a JSON array of objects with:
-- "speaker": who said it
-- "summary": a concise feature request title (max 80 chars)
-- "original": the exact quote from the conversation
-
-If no feature requests are found, return an empty array: []
-Return ONLY valid JSON array, nothing else.`;
-
-        try {
-          const result = await chatCompletion(
-            "gpt-4o-mini",
-            [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: conversationBlock },
-            ],
-            true
-          );
-
-          const parsed = JSON.parse(result);
-          if (Array.isArray(parsed)) {
-            for (const item of parsed) {
-              allFeatureRequests.push({
-                speaker: item.speaker || "Unknown",
-                content: item.summary || item.original || "",
-                original: item.original || "",
-              });
-            }
-          }
-        } catch (parseErr) {
-          console.error(`Backlog scan batch ${i}-${i + BATCH_SIZE} parse error:`, parseErr);
-        }
-      }
-
-      if (allFeatureRequests.length === 0) {
-        return res.json({ message: "No feature requests found in conversation history", issues: [] });
-      }
-
-      const createdIssues: Array<{ speaker: string; content: string; issueNumber?: number; issueUrl?: string; error?: string }> = [];
-
-      for (const req of allFeatureRequests) {
-        try {
-          const result = await createFeatureRequestIssue(req.speaker, req.content, roomId);
-          createdIssues.push({
-            speaker: req.speaker,
-            content: req.content,
-            issueNumber: result?.issueNumber,
-            issueUrl: result?.issueUrl,
-          });
-        } catch (err: any) {
-          createdIssues.push({
-            speaker: req.speaker,
-            content: req.content,
-            error: err?.message || "Failed to create issue",
-          });
-        }
-      }
-
-      res.json({
-        message: `Scanned ${entries.length} messages, found ${allFeatureRequests.length} feature requests, created ${createdIssues.filter(i => i.issueNumber).length} GitHub issues`,
-        totalScanned: entries.length,
-        found: allFeatureRequests.length,
-        issues: createdIssues,
-      });
+      const result = await scanBacklogWithLain(
+        entries.map(e => ({ speaker: e.speaker, content: e.content })),
+        roomId,
+        chatCompletion,
+      );
+      console.log(`[Iwakura] ${result.message}`);
+      res.json(result);
     } catch (error) {
-      console.error("Error scanning backlog:", error);
-      res.status(500).json({ error: "Failed to scan conversation backlog" });
+      console.error("[Iwakura] Backlog scan error:", error);
+      res.status(500).json({ error: "Iwakura could not read the Wired" });
     }
   });
 
