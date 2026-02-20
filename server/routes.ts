@@ -359,16 +359,101 @@ Keep your response to 2-3 focused paragraphs maximum.`;
         { roomId, metadata: { source: "chunk_analysis", entryCount: entries.length, durationHours } }
       );
 
+      const savedEntry = await storage.createConversationEntry({
+        roomId,
+        speaker: `AI Insight (${chosenModel})`,
+        content: result,
+      });
+
       return res.json({
         insight: result,
         model: chosenModel,
         entryCount: entries.length,
         durationHours,
         speakers: uniqueSpeakers,
+        savedEntryId: savedEntry.id,
       });
     } catch (error) {
       console.error("Error analyzing chunk:", error);
       res.status(500).json({ error: "Failed to analyze conversation chunk" });
+    }
+  });
+
+  // Generate visual art inspired by a conversation chunk
+  app.post("/api/rooms/:roomId/generate-art", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const room = await storage.getRoom(roomId);
+      if (!room) return res.status(404).json({ error: "Room not found" });
+
+      const { start: startStr, end: endStr, insight: existingInsight } = req.body;
+      if (!startStr || !endStr) {
+        return res.status(400).json({ error: "start and end are required" });
+      }
+      const start = new Date(startStr);
+      const end = new Date(endStr);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+        return res.status(400).json({ error: "Invalid date range" });
+      }
+
+      const allEntries = await storage.getEntriesByRoom(roomId);
+      const entries = allEntries.filter(e => {
+        const t = new Date(e.timestamp);
+        return t >= start && t <= end;
+      });
+
+      const conversationSummary = existingInsight || entries.slice(0, 30).map(e => `${e.speaker}: ${e.content}`).join("\n");
+
+      const artPromptResult = await logLatency(
+        "art_prompt_generation", "gpt-4o-mini", "openai",
+        () => chatCompletion("gpt-4o-mini", [
+          { role: "system", content: `You are an art director creating visual art inspired by philosophical conversations. Given a conversation or insight, generate TWO things:
+
+1. A vivid, detailed image prompt for an abstract/conceptual art piece that captures the essence of the ideas discussed. Think digital art, generative art, or abstract expressionism that would look stunning on a large screen in a room. Include specific colors, mood, composition, and style. Do NOT include any text or words in the image.
+
+2. A short poetic quote (max 15 words) that crystallizes the key insight — suitable for overlaying on a digital art display.
+
+Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "title": "2-4 word title"}` },
+          { role: "user", content: `Create art inspired by this conversation/insight:\n\n${conversationSummary}` },
+        ], true),
+        { roomId, metadata: { source: "art_prompt_generation" } }
+      );
+
+      let parsed: { imagePrompt: string; quote: string; title: string };
+      try {
+        parsed = JSON.parse(artPromptResult);
+      } catch {
+        parsed = {
+          imagePrompt: "Abstract philosophical art, swirling cosmic patterns representing interconnected ideas, deep blue and violet tones, ethereal and contemplative, digital art",
+          quote: "In dialogue, we discover what we didn't know we knew.",
+          title: "Dialogue",
+        };
+      }
+
+      const { generateImageBuffer } = await import("./replit_integrations/image/client");
+      const imageBuffer = await logLatency(
+        "art_generation", "gpt-image-1", "openai",
+        () => generateImageBuffer(parsed.imagePrompt, "1024x1024"),
+        { roomId, metadata: { source: "art_generation", title: parsed.title } }
+      );
+
+      const base64 = imageBuffer.toString("base64");
+
+      await storage.createConversationEntry({
+        roomId,
+        speaker: "Art Generation",
+        content: `[Art: "${parsed.title}"] ${parsed.quote}`,
+      });
+
+      return res.json({
+        image: `data:image/png;base64,${base64}`,
+        quote: parsed.quote,
+        title: parsed.title,
+        imagePrompt: parsed.imagePrompt,
+      });
+    } catch (error) {
+      console.error("Error generating art:", error);
+      res.status(500).json({ error: "Failed to generate art" });
     }
   });
 

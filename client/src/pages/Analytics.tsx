@@ -415,6 +415,10 @@ function ExportView() {
   const [insight, setInsight] = useState<any>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [streamedText, setStreamedText] = useState("");
+  const [artData, setArtData] = useState<any>(null);
+  const [artLoading, setArtLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
   const webllm = useWebLLM();
   const isLocalModel = WEBLLM_MODELS.some(m => m.id === analysisModel);
 
@@ -455,6 +459,8 @@ function ExportView() {
     setInsightLoading(true);
     setInsight(null);
     setStreamedText("");
+    setArtData(null);
+    setSaved(false);
 
     const startISO = new Date(`${startDate}T${startTime}:00`).toISOString();
     const endISO = new Date(`${endDate}T${endTime}:00`).toISOString();
@@ -525,6 +531,47 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
       }
     }
   }, [startDate, startTime, endDate, endTime, roomId, analysisModel, isLocalModel, buildUrl, webllm]);
+
+  const generateArt = useCallback(async () => {
+    setArtLoading(true);
+    setArtData(null);
+    try {
+      const start = new Date(`${startDate}T${startTime}:00`).toISOString();
+      const end = new Date(`${endDate}T${endTime}:00`).toISOString();
+      const resp = await fetch(`/api/rooms/${roomId}/generate-art`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start, end, insight: insight?.insight }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setArtData({ error: data.error || "Art generation failed" });
+      } else {
+        setArtData(data);
+      }
+    } catch {
+      setArtData({ error: "Failed to generate art" });
+    } finally {
+      setArtLoading(false);
+    }
+  }, [startDate, startTime, endDate, endTime, roomId, insight]);
+
+  const saveInsightToStream = useCallback(async () => {
+    if (!insight?.insight || insight.savedEntryId || saved) return;
+    setSaveLoading(true);
+    try {
+      const resp = await fetch(`/api/rooms/${roomId}/entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          speaker: `AI Insight (${insight.model})`,
+          content: insight.insight,
+        }),
+      });
+      if (resp.ok) setSaved(true);
+    } catch { /* ignore */ }
+    finally { setSaveLoading(false); }
+  }, [insight, roomId, saved]);
 
   return (
     <div className="space-y-6">
@@ -674,18 +721,68 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
             </div>
           </div>
 
+          {insightLoading && isLocalModel && streamedText && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Generating locally...</span>
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
+                {streamedText}
+              </div>
+            </div>
+          )}
+
           {insight && !insight.error && (
             <div className="space-y-3 pt-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                 <Badge variant="secondary">{insight.model}</Badge>
+                {insight.local && <Badge variant="outline">Local</Badge>}
                 <span>{insight.entryCount} entries</span>
                 <span>{insight.durationHours}h</span>
-                {insight.speakers && <span>{insight.speakers.join(", ")}</span>}
+                {insight.speakers?.length > 0 && <span>{insight.speakers.join(", ")}</span>}
+                {(insight.savedEntryId || saved) && <Badge variant="secondary">Saved</Badge>}
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none" data-testid="text-ai-insight">
                 {insight.insight.split("\n").map((paragraph: string, i: number) => (
                   paragraph.trim() ? <p key={i}>{paragraph}</p> : null
                 ))}
+              </div>
+              <div className="flex gap-2 flex-wrap pt-1">
+                {insight.local && !saved && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={saveInsightToStream}
+                    disabled={saveLoading}
+                    data-testid="button-save-insight"
+                  >
+                    {saveLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+                    Save to Stream
+                  </Button>
+                )}
+                {!insight.savedEntryId && !insight.local && (
+                  <Badge variant="secondary">Auto-saved</Badge>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={generateArt}
+                  disabled={artLoading}
+                  data-testid="button-generate-art"
+                >
+                  {artLoading ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      Generating Art...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      Generate Art
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           )}
@@ -695,6 +792,46 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
           )}
         </CardContent>
       </Card>
+
+      {artData && !artData.error && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{artData.title || "Generated Art"}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="relative rounded-md overflow-hidden bg-black">
+              <img
+                src={artData.image}
+                alt={artData.title}
+                className="w-full max-w-2xl mx-auto block"
+                data-testid="img-generated-art"
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
+                <p className="text-white text-lg font-light italic text-center" data-testid="text-art-quote">
+                  "{artData.quote}"
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <a href={artData.image} download={`${artData.title || "art"}.png`}>
+                <Button variant="outline" size="sm" data-testid="button-download-art">
+                  <Download className="w-3 h-3 mr-1" />
+                  Download Image
+                </Button>
+              </a>
+              <span className="text-xs text-muted-foreground">Saved to conversation stream</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {artData?.error && (
+        <Card>
+          <CardContent className="py-6">
+            <p className="text-sm text-destructive" data-testid="text-art-error">{artData.error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {preview && (
         <Card>
