@@ -158,9 +158,18 @@ export default function Dashboard() {
     if (!model || !room?.id) return;
 
     if (entries.length === 0) {
+      const isIwakura = model.name.toLowerCase() === "iwakura";
+      const iwakuraQuotes = [
+        "No matter where you are, everyone is always connected.",
+        "Hello Navi.",
+      ];
       toast({
-        title: `${model.name} has nothing to say`,
-        description: "Start a conversation first so they have something to respond to.",
+        title: isIwakura
+          ? iwakuraQuotes[Math.floor(Math.random() * iwakuraQuotes.length)]
+          : `${model.name} has nothing to say`,
+        description: isIwakura
+          ? undefined
+          : "Start a conversation first so they have something to respond to.",
       });
       return;
     }
