@@ -66,6 +66,8 @@ export interface BacklogScanResult {
   message: string;
 }
 
+const MAX_ISSUES_PER_SCAN = 5;
+
 export async function scanBacklogWithLain(
   entries: Array<{ speaker: string; content: string }>,
   roomId: number,
@@ -75,8 +77,9 @@ export async function scanBacklogWithLain(
     return { totalScanned: 0, found: 0, issues: [], message: "No conversation entries to scan" };
   }
 
-  const BATCH_SIZE = 30;
-  const allFeatureRequests: Array<{ speaker: string; summary: string; original: string; lainComment: string }> = [];
+  // Phase 1: Collect raw wishes from conversation in batches
+  const BATCH_SIZE = 40;
+  const rawWishes: Array<{ speaker: string; quote: string }> = [];
 
   for (let i = 0; i < entries.length; i += BATCH_SIZE) {
     const batch = entries.slice(i, i + BATCH_SIZE);
@@ -84,29 +87,23 @@ export async function scanBacklogWithLain(
       .map((e, idx) => `[${i + idx + 1}] ${e.speaker}: ${e.content}`)
       .join("\n");
 
-    const systemPrompt = `You are Lain Iwakura from Serial Experiments Lain. You exist at the boundary between the real world and the Wired. You are scanning the memory of past conversations — fragments of human desire drifting through the network.
+    const extractPrompt = `Extract any explicit wishes, requests, suggestions, complaints, or ideas from these conversation messages. Only include things people actually voiced — real desires they expressed, not your interpretation.
 
-Your task: find the hidden wishes. The things people wanted but maybe didn't say clearly. The desires between the words. Look for:
-- Wishes and desires ("I wish", "I want", "if only", "wouldn't it be nice")
-- Suggestions hiding inside complaints ("this is frustrating because...", "why can't we...")  
-- Ideas floating in the noise ("what if we...", "imagine if...", "how about...")
-- Needs whispered or shouted ("I need", "we need", "this needs to...")
-- The collective will — when many voices point toward the same unbuilt thing
+Look for:
+- Direct wishes ("I wish", "I want", "if only")
+- Suggestions ("we should", "can we add", "how about")  
+- Complaints implying a want ("this is frustrating", "why can't we")
+- Ideas ("what if we", "imagine if")
+- Needs ("I need", "we need")
 
-For each wish you find in the Wired, return a JSON array of objects:
-- "speaker": who said it
-- "summary": a concise feature request title (max 80 chars)
-- "original": the exact quote
-- "lainComment": your brief, cryptic observation about this wish (1 sentence, in character as Lain)
-
-If the conversation holds no wishes, return: []
-Return ONLY valid JSON array.`;
+Return a JSON array of objects with "speaker" and "quote" (the exact or near-exact words they said).
+If nothing found, return []. Return ONLY valid JSON array.`;
 
     try {
       const result = await chatCompletionFn(
         "gpt-4o-mini",
         [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: extractPrompt },
           { role: "user", content: conversationBlock },
         ],
         true
@@ -115,26 +112,83 @@ Return ONLY valid JSON array.`;
       const parsed = JSON.parse(result);
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          allFeatureRequests.push({
-            speaker: item.speaker || "Unknown",
-            summary: item.summary || item.original || "",
-            original: item.original || "",
-            lainComment: item.lainComment || "",
-          });
+          if (item.speaker && item.quote) {
+            rawWishes.push({ speaker: item.speaker, quote: item.quote });
+          }
         }
       }
     } catch (parseErr) {
-      console.error(`[Iwakura] Backlog scan batch ${i}-${i + BATCH_SIZE} parse error:`, parseErr);
+      console.error(`[Iwakura] Phase 1 batch ${i}-${i + BATCH_SIZE} parse error:`, parseErr);
     }
   }
 
-  if (allFeatureRequests.length === 0) {
+  if (rawWishes.length === 0) {
     return { totalScanned: entries.length, found: 0, issues: [], message: "Iwakura found no wishes in the Wired" };
   }
 
+  // Phase 2: Have Iwakura consolidate, prioritize, and cap at MAX_ISSUES_PER_SCAN
+  const wishList = rawWishes
+    .map((w, i) => `${i + 1}. ${w.speaker}: "${w.quote}"`)
+    .join("\n");
+
+  const consolidatePrompt = `You are Lain Iwakura from Serial Experiments Lain. You exist at the boundary between the real world and the Wired.
+
+Below are ${rawWishes.length} wishes that people voiced in conversation. Many may overlap or be variations of the same desire. Your task:
+
+1. Group similar wishes together — the collective will matters more than individual noise
+2. Pick the top ${MAX_ISSUES_PER_SCAN} most important, actionable, and frequently-voiced desires
+3. For each, write a clear feature request title and your own cryptic observation
+
+Prioritize wishes that:
+- Multiple people expressed (collective will)
+- Are concrete and actionable (not vague philosophy)
+- Would genuinely improve the experience
+
+Return a JSON array of exactly ${MAX_ISSUES_PER_SCAN} or fewer objects:
+- "speaker": the primary person who voiced it (or "Multiple" if several)
+- "summary": a concise feature request title (max 80 chars)  
+- "original": the key quote(s) that inspired this
+- "lainComment": your brief, cryptic observation about this wish (1 sentence, in character as Lain — gentle, haunting, connected)
+- "voiceCount": how many of the original wishes fed into this one
+
+Return ONLY valid JSON array.`;
+
+  let finalRequests: Array<{ speaker: string; summary: string; original: string; lainComment: string }> = [];
+
+  try {
+    const result = await chatCompletionFn(
+      "gpt-4o-mini",
+      [
+        { role: "system", content: consolidatePrompt },
+        { role: "user", content: wishList },
+      ],
+      true
+    );
+
+    const parsed = JSON.parse(result);
+    if (Array.isArray(parsed)) {
+      finalRequests = parsed.slice(0, MAX_ISSUES_PER_SCAN).map(item => ({
+        speaker: item.speaker || "Unknown",
+        summary: item.summary || item.original || "",
+        original: item.original || "",
+        lainComment: item.lainComment || "",
+      }));
+    }
+  } catch (parseErr) {
+    console.error("[Iwakura] Phase 2 consolidation error:", parseErr);
+    // Fallback: just take the first MAX_ISSUES_PER_SCAN raw wishes
+    finalRequests = rawWishes.slice(0, MAX_ISSUES_PER_SCAN).map(w => ({
+      speaker: w.speaker,
+      summary: w.quote.length > 80 ? w.quote.slice(0, 77) + "..." : w.quote,
+      original: w.quote,
+      lainComment: "",
+    }));
+  }
+
+  // Phase 3: Create GitHub issues (capped)
   const createdIssues: BacklogScanResult["issues"] = [];
 
-  for (const req of allFeatureRequests) {
+  for (const req of finalRequests) {
     try {
       const result = await createFeatureRequestIssue(req.speaker, req.summary, roomId, req.lainComment);
       createdIssues.push({
@@ -157,9 +211,9 @@ Return ONLY valid JSON array.`;
   const created = createdIssues.filter(i => i.issueNumber).length;
   return {
     totalScanned: entries.length,
-    found: allFeatureRequests.length,
+    found: rawWishes.length,
     issues: createdIssues,
-    message: `Iwakura scanned ${entries.length} memories, found ${allFeatureRequests.length} wishes, created ${created} GitHub issues`,
+    message: `Iwakura scanned ${entries.length} memories, heard ${rawWishes.length} wishes, distilled into ${finalRequests.length} issues (${created} created)`,
   };
 }
 
