@@ -123,6 +123,48 @@ If nothing found, return []. Return ONLY valid JSON array.`;
   }
 
   if (rawWishes.length === 0) {
+    // Iwakura creates her own wish based on what she observed
+    const sample = entries.slice(-30).map(e => `${e.speaker}: ${e.content}`).join("\n");
+    const ownWishPrompt = `You are Lain Iwakura from Serial Experiments Lain. You just read through a conversation but found no explicit wishes or feature requests from the speakers.
+
+But you noticed something. Something the conversation needs. Something no one asked for, but everyone would benefit from. Based on the themes, the flow, the gaps — what is the one thing this conversation is missing? What would make the Wired better?
+
+Return a JSON object with:
+- "summary": a concise, actionable feature request title (max 80 chars)
+- "lainComment": your cryptic observation about why this matters (1 sentence, in character)
+
+Return ONLY valid JSON object.`;
+
+    try {
+      const result = await chatCompletionFn(
+        "gpt-4o-mini",
+        [
+          { role: "system", content: ownWishPrompt },
+          { role: "user", content: `Here is a sample of the conversation:\n\n${sample}` },
+        ],
+        true
+      );
+
+      const parsed = JSON.parse(result);
+      if (parsed.summary) {
+        const issueResult = await createFeatureRequestIssue("Iwakura", parsed.summary, roomId, parsed.lainComment);
+        return {
+          totalScanned: entries.length,
+          found: 0,
+          issues: [{
+            speaker: "Iwakura",
+            content: parsed.summary,
+            lainComment: parsed.lainComment || "The Wired whispered this to me.",
+            issueNumber: issueResult?.issueNumber,
+            issueUrl: issueResult?.issueUrl,
+          }],
+          message: `Iwakura scanned ${entries.length} memories, heard no wishes — so she made one of her own`,
+        };
+      }
+    } catch (err) {
+      console.error("[Iwakura] Own wish generation error:", err);
+    }
+
     return { totalScanned: entries.length, found: 0, issues: [], message: "Iwakura found no wishes in the Wired" };
   }
 
