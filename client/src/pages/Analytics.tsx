@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2, Search, Github } from "lucide-react";
+import { ArrowLeft, Clock, Zap, AlertTriangle, Activity, DollarSign, Download, FileText, FileJson, Sparkles, Loader2, Search, Github, Image as ImageIcon } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import type { LatencyLog } from "@shared/schema";
 import { useWebLLM, WEBLLM_MODELS } from "@/hooks/use-webllm";
@@ -816,45 +816,76 @@ Be specific — reference actual moments or phrases from the conversation. Keep 
         </CardContent>
       </Card>
 
-      {artData && !artData.error && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{artData.title || "Generated Art"}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="relative rounded-md overflow-hidden bg-black">
-              <img
-                src={artData.image}
-                alt={artData.title}
-                className="w-full max-w-2xl mx-auto block"
-                data-testid="img-generated-art"
-              />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
-                <p className="text-white text-lg font-light italic text-center" data-testid="text-art-quote">
-                  "{artData.quote}"
-                </p>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ImageIcon className="w-4 h-4" />
+            Generate Art
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Create an AI-generated art piece inspired by the conversation in the selected time range.
+            {insight?.insight && " Uses the insight above as creative seed."}
+          </p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <Button
+              onClick={generateArt}
+              disabled={artLoading}
+              data-testid="button-generate-art-standalone"
+            >
+              {artLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating Art...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Art
+                </>
+              )}
+            </Button>
+            <Link href="/gallery">
+              <Button variant="outline" size="sm" data-testid="button-view-gallery">
+                <ImageIcon className="w-3 h-3 mr-1" />
+                View Gallery
+              </Button>
+            </Link>
+          </div>
+
+          {artData && !artData.error && (
+            <div className="space-y-4 pt-2">
+              <div className="relative rounded-md overflow-hidden bg-black">
+                <img
+                  src={artData.image}
+                  alt={artData.title}
+                  className="w-full max-w-2xl mx-auto block"
+                  data-testid="img-generated-art"
+                />
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
+                  <p className="text-white text-lg font-light italic text-center" data-testid="text-art-quote">
+                    "{artData.quote}"
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <a href={artData.image} download={`${artData.title || "art"}.png`}>
+                  <Button variant="outline" size="sm" data-testid="button-download-art">
+                    <Download className="w-3 h-3 mr-1" />
+                    Download
+                  </Button>
+                </a>
+                <span className="text-xs text-muted-foreground">Permanently archived &middot; <Link href="/gallery"><a className="underline">View Gallery</a></Link></span>
               </div>
             </div>
-            <div className="flex gap-2 flex-wrap items-center">
-              <a href={artData.image} download={`${artData.title || "art"}.png`}>
-                <Button variant="outline" size="sm" data-testid="button-download-art">
-                  <Download className="w-3 h-3 mr-1" />
-                  Download Image
-                </Button>
-              </a>
-              <span className="text-xs text-muted-foreground">Permanently archived &middot; <a href="/gallery" className="underline">View Gallery</a></span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {artData?.error && (
-        <Card>
-          <CardContent className="py-6">
-            <p className="text-sm text-destructive" data-testid="text-art-error">{artData.error}</p>
-          </CardContent>
-        </Card>
-      )}
+          {artData?.error && (
+            <p className="text-sm text-destructive pt-2" data-testid="text-art-error">{artData.error}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
