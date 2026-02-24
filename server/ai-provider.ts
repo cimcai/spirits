@@ -137,9 +137,11 @@ export async function analyzeConversation(
   conversationContext: string
 ): Promise<AnalysisResult> {
   const isLibrarian = modelName.toLowerCase().includes("librarian");
-  const wordLimit = isLibrarian ? 40 : 20;
+  const wordLimit = isLibrarian ? 50 : 20;
   const responseInstruction = isLibrarian
-    ? `IMPORTANT: Your "response" MUST be 40 words or fewer. Always include a REAL, EXACT quote with full citation in this format: "exact quote" — Author, Title (Year). Never paraphrase or fabricate quotes.`
+    ? `IMPORTANT: Your "response" MUST be 50 words or fewer. You MUST start with a direct quote from a real book, paper, or speech. Do NOT start with "Consider" or recommend a book — GIVE THE QUOTE ITSELF. Format your response EXACTLY like this example:
+"The only true wisdom is in knowing you know nothing." — Socrates, as quoted in Plato's Apology (399 BC)
+Never paraphrase. Never fabricate. The quote must be real and verbatim.`
     : `IMPORTANT: Your "response" MUST be 20 words or fewer. Be concise and impactful — distill your wisdom into a single powerful statement.`;
 
   const systemPrompt = `You are ${modelName}. ${modelDescription}. ${modelPersona}
