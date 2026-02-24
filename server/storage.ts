@@ -63,6 +63,7 @@ export interface IStorage {
   getPendingSubmissions(status?: string): Promise<PendingSubmission[]>;
   getPendingSubmission(id: number): Promise<PendingSubmission | undefined>;
   updatePendingSubmission(id: number, updates: Partial<PendingSubmission>): Promise<PendingSubmission | undefined>;
+  isSourceTrusted(source: string): Promise<boolean>;
 
   // Latency Logs
   createLatencyLog(log: InsertLatencyLog): Promise<LatencyLog>;
@@ -266,6 +267,14 @@ export class DatabaseStorage implements IStorage {
   async updatePendingSubmission(id: number, updates: Partial<PendingSubmission>): Promise<PendingSubmission | undefined> {
     const [updated] = await db.update(pendingSubmissions).set(updates).where(eq(pendingSubmissions.id, id)).returning();
     return updated;
+  }
+
+  async isSourceTrusted(source: string): Promise<boolean> {
+    const [approved] = await db.select({ id: pendingSubmissions.id })
+      .from(pendingSubmissions)
+      .where(and(eq(pendingSubmissions.source, source), eq(pendingSubmissions.status, "approved")))
+      .limit(1);
+    return !!approved;
   }
 
   async getLatencyLogsByOperation(operation: string): Promise<LatencyLog[]> {

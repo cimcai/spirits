@@ -1476,11 +1476,88 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
         return res.status(400).json({ error: "speaker and content are required" });
       }
       const roomId = reqRoomId ? parseInt(reqRoomId) : 1;
+      const submissionSource = String(source || "api");
+
+      const trusted = await storage.isSourceTrusted(submissionSource);
+
+      if (trusted) {
+        const entry = await storage.createConversationEntry({
+          roomId,
+          speaker: String(speaker),
+          content: String(content),
+        });
+
+        const submission = await storage.createPendingSubmission({
+          roomId,
+          speaker: String(speaker),
+          content: String(content),
+          source: submissionSource,
+        });
+        await storage.updatePendingSubmission(submission.id, {
+          status: "approved",
+          reviewedBy: "auto",
+          reviewNote: "Auto-approved: trusted source",
+        });
+
+        if (detectFeatureRequest(String(content))) {
+          createFeatureRequestIssue(String(speaker), String(content), roomId)
+            .then(result => { if (result) console.log(`Feature request from auto-approved: GitHub issue #${result.issueNumber}`); })
+            .catch(err => console.error("GitHub issue creation error:", err));
+        }
+
+        const models = await storage.getAllAiModels();
+        const activeModels = models.filter(m => m.isActive);
+
+        console.log(`[inbound/respond] Auto-approved "${speaker}" from trusted source "${submissionSource}"`);
+
+        res.status(201).json({
+          submission: {
+            id: submission.id,
+            speaker: submission.speaker,
+            content: submission.content,
+            status: "approved",
+            createdAt: submission.createdAt,
+          },
+          autoApproved: true,
+          message: `Auto-approved: source "${submissionSource}" is trusted. ${activeModels.length} philosophers analyzing.`,
+        });
+
+        const entries = await storage.getEntriesByRoom(roomId);
+        const conversationContext = entries
+          .slice(-10)
+          .map((e) => `${e.speaker}: ${e.content}`)
+          .join("\n");
+
+        for (const model of activeModels) {
+          try {
+            const llmModel = model.llmModel || "gpt-4o-mini";
+            const result = await logLatency(
+              "analysis", llmModel, getProvider(llmModel),
+              () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+              { roomId, modelId: model.id, metadata: { philosopherName: model.name } }
+            );
+            await storage.createModelAnalysis({
+              roomId,
+              modelId: model.id,
+              conversationEntryId: entry.id,
+              confidence: result.confidence || 0,
+              analysis: result.analysis || "No analysis provided",
+              proposedResponse: result.response || null,
+              shouldSpeak: result.shouldSpeak || false,
+            });
+          } catch (err) {
+            console.error(`Analysis error for ${model.name}:`, err);
+          }
+        }
+
+        return;
+      }
+
       const submission = await storage.createPendingSubmission({
         roomId,
         speaker: String(speaker),
         content: String(content),
-        source: String(source || "api"),
+        source: submissionSource,
       });
 
       res.status(201).json({
