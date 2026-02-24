@@ -492,7 +492,7 @@ export default function Dashboard() {
                 .sort((a, b) => b!.conf - a!.conf) as { model: AiModel; conf: number; response: string }[];
 
               return readyPhilosophers.length > 0 ? (
-                <div className="pb-3 -mt-1 space-y-1" data-testid="ready-to-speak-list">
+                <div className="pb-3 -mt-1 space-y-1 max-h-[120px] overflow-y-auto" data-testid="ready-to-speak-list">
                   {readyPhilosophers.map(({ model, conf, response }) => (
                     <button
                       key={model.id}

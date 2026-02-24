@@ -1,7 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageCircle, Radio } from "lucide-react";
 import type { ConversationEntry } from "@shared/schema";
 
@@ -11,12 +10,29 @@ interface ConversationStreamProps {
 }
 
 export function ConversationStream({ entries, isLive = false }: ConversationStreamProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const wasNearBottom = useRef(true);
+  const prevEntryCount = useRef(0);
+
+  const checkNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 80;
+    wasNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", checkNearBottom, { passive: true });
+    return () => el.removeEventListener("scroll", checkNearBottom);
+  }, [checkNearBottom]);
+
+  useEffect(() => {
+    if (entries.length > prevEntryCount.current && wasNearBottom.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+    prevEntryCount.current = entries.length;
   }, [entries]);
 
   return (
@@ -37,7 +53,7 @@ export function ConversationStream({ entries, isLive = false }: ConversationStre
         )}
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
-        <ScrollArea className="h-[400px] px-4 pb-4">
+        <div ref={scrollRef} className="h-[400px] px-4 pb-4 overflow-y-auto">
           {entries.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-12">
               <Radio className="h-8 w-8 mb-2 opacity-50" />
@@ -69,10 +85,9 @@ export function ConversationStream({ entries, isLive = false }: ConversationStre
                   </div>
                 </div>
               ))}
-              <div ref={bottomRef} />
             </div>
           )}
-        </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   );
