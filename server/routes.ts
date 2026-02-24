@@ -532,15 +532,20 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
       const models = await storage.getAllAiModels();
       const entries = await storage.getEntriesByRoom(roomId);
       
-      // Build conversation context
-      const conversationContext = entries
+      const context10 = entries
         .slice(-10)
+        .map((e) => `${e.speaker}: ${e.content}`)
+        .join("\n");
+      const context30 = entries
+        .slice(-30)
         .map((e) => `${e.speaker}: ${e.content}`)
         .join("\n");
 
       for (const model of models) {
         try {
           const llmModel = model.llmModel || "gpt-4o-mini";
+          const isDeepModel = llmModel.includes("opus") || llmModel.includes("sonnet");
+          const conversationContext = isDeepModel ? context30 : context10;
           const result = await logLatency(
             "analysis", llmModel, getProvider(llmModel),
             () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
@@ -709,16 +714,26 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
       }
 
       const allAnalyses = await storage.getAnalysesByRoom(roomId);
-      const buffered = allAnalyses
+
+      const untriggered = allAnalyses
         .filter(a => a.modelId === modelId && !a.isTriggered && a.proposedResponse && a.proposedResponse.trim().length > 0)
         .sort((a, b) => b.id - a.id);
 
-      const bestBuffered = buffered[0];
+      const lastKnown = untriggered.length === 0
+        ? allAnalyses
+            .filter(a => a.modelId === modelId && a.proposedResponse && a.proposedResponse.trim().length > 0)
+            .sort((a, b) => b.id - a.id)[0] || null
+        : null;
+
+      const bestBuffered = untriggered[0] || lastKnown;
 
       if (bestBuffered && bestBuffered.proposedResponse) {
         const responseText = bestBuffered.proposedResponse;
+        const isBackup = !untriggered[0];
 
-        await storage.markAnalysisTriggered(bestBuffered.id);
+        if (!bestBuffered.isTriggered) {
+          await storage.markAnalysisTriggered(bestBuffered.id);
+        }
 
         const entry = await storage.createConversationEntry({
           roomId,
@@ -734,16 +749,19 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
           status: "completed",
         });
 
-        console.log(`[force-speak] ${model.name} delivered buffered response (analysis #${bestBuffered.id}, confidence ${bestBuffered.confidence})`);
-        return res.status(201).json({ entry, analysis: bestBuffered, triggered: true, philosopher: model.name, source: "buffered" });
+        const sourceLabel = isBackup ? "backup" : "buffered";
+        console.log(`[force-speak] ${model.name} delivered ${sourceLabel} response (analysis #${bestBuffered.id}, confidence ${bestBuffered.confidence})`);
+        return res.status(201).json({ entry, analysis: bestBuffered, triggered: true, philosopher: model.name, source: sourceLabel });
       }
 
-      const recentEntries = allEntries.slice(-20);
+      const llmModel = model.llmModel || "gpt-4o-mini";
+      const isDeepModel = llmModel.includes("opus") || llmModel.includes("sonnet");
+      const contextSize = isDeepModel ? 30 : 20;
+      const recentEntries = allEntries.slice(-contextSize);
       const conversationContext = recentEntries
         .map((e: { speaker: string; content: string }) => `${e.speaker}: ${e.content}`)
         .join("\n");
 
-      const llmModel = model.llmModel || "gpt-4o-mini";
       const result = await logLatency(
         "analysis", llmModel, getProvider(llmModel),
         () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
@@ -777,7 +795,7 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
         status: "completed",
       });
 
-      console.log(`[force-speak] ${model.name} generated fresh response (no buffered available)`);
+      console.log(`[force-speak] ${model.name} generated fresh response (no buffered or backup available)`);
       res.status(201).json({ entry, analysis, triggered: true, philosopher: model.name, source: "fresh" });
     } catch (error) {
       console.error("Error in force-speak:", error);
