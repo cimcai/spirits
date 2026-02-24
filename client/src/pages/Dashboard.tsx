@@ -477,14 +477,51 @@ export default function Dashboard() {
                 );
               })}
             </div>
-            {entries.length > 0 && (
-              <div className="pb-3 -mt-1">
-                <p className="text-sm text-muted-foreground truncate" data-testid="text-latest-message">
-                  <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
-                  {entries[entries.length - 1].content}
-                </p>
-              </div>
-            )}
+            {(() => {
+              const readyPhilosophers = models
+                .map(model => {
+                  const conf = getEffectiveConfidence(model);
+                  const modelAn = analyses
+                    .filter(a => a.modelId === model.id && !a.isTriggered && a.proposedResponse && a.proposedResponse.trim().length > 0)
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                  const latest = modelAn[0];
+                  if (!latest || conf < 30) return null;
+                  return { model, conf, response: latest.proposedResponse! };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b!.conf - a!.conf) as { model: AiModel; conf: number; response: string }[];
+
+              return readyPhilosophers.length > 0 ? (
+                <div className="pb-3 -mt-1 space-y-1" data-testid="ready-to-speak-list">
+                  {readyPhilosophers.map(({ model, conf, response }) => (
+                    <button
+                      key={model.id}
+                      onClick={() => triggerPhilosopherById(model.id)}
+                      className="w-full text-left flex items-start gap-2 hover:bg-accent/50 rounded px-2 py-0.5 transition-colors group"
+                      data-testid={`ready-insight-${model.id}`}
+                    >
+                      <div
+                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 animate-pulse"
+                        style={{ backgroundColor: model.color }}
+                      />
+                      <span className="text-[11px] text-muted-foreground leading-snug">
+                        <span className="font-semibold" style={{ color: model.color }}>{model.name}</span>
+                        <span className="opacity-50 ml-1">{conf}%</span>
+                        <span className="mx-1 opacity-30">—</span>
+                        <span className="italic opacity-70 group-hover:opacity-100 transition-opacity">{response}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : entries.length > 0 ? (
+                <div className="pb-3 -mt-1">
+                  <p className="text-sm text-muted-foreground truncate" data-testid="text-latest-message">
+                    <span className="font-semibold">{entries[entries.length - 1].speaker}:</span>{" "}
+                    {entries[entries.length - 1].content}
+                  </p>
+                </div>
+              ) : null;
+            })()}
           </div>
         </div>
       )}
