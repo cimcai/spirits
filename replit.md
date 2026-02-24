@@ -9,7 +9,8 @@ This is an AI-powered philosophical dialogue system where unlimited AI philosoph
 - **Confidence Decay**: Displayed confidence drops 15% per new message; button disappears below 50%
 - **Confidence Multiplier**: User ratings adjust a per-philosopher multiplier (-1 rating = 0.8x penalty, +1 rating = 1.05x boost, capped at 0.1-1.5x)
 - **Response Rating**: Thumbs up/down buttons appear after a philosopher speaks; adjusts confidence multiplier
-- **User-Initiated Responses**: Click the orb or "Click to Speak" button to trigger the philosopher's response
+- **User-Initiated Responses**: Click the orb or "Click to Speak" button to trigger the philosopher's response; uses buffered analysis if available, only generates fresh if no buffer exists
+- **Buffered Response Queue**: Each philosopher retains their last valuable analysis; pressing the button delivers the most recent untriggered insight before falling back to a fresh LLM call
 - **Keyboard Shortcuts**: Press 1, 2, or 3 to trigger top-3 philosophers by effective confidence (for Ultimarc USB button integration)
 - **Dynamic Top-3 Mapping**: Button indices (1, 2, 3) are dynamically assigned to the 3 philosophers with highest effective confidence
 - **Text-to-Speech**: When triggered, philosophers speak their wisdom aloud with unique voices

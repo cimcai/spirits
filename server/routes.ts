@@ -693,7 +693,7 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
     }
   });
 
-  // Force a philosopher to speak — generates fresh response regardless of confidence
+  // Force a philosopher to speak — uses buffered response if available, otherwise generates fresh
   app.post("/api/models/:modelId/force-speak", async (req, res) => {
     try {
       const modelId = parseInt(req.params.modelId);
@@ -706,6 +706,36 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
       const allEntries = await storage.getEntriesByRoom(roomId);
       if (allEntries.length === 0) {
         return res.status(400).json({ error: "No conversation to respond to" });
+      }
+
+      const allAnalyses = await storage.getAnalysesByRoom(roomId);
+      const buffered = allAnalyses
+        .filter(a => a.modelId === modelId && !a.isTriggered && a.proposedResponse && a.proposedResponse.trim().length > 0)
+        .sort((a, b) => b.id - a.id);
+
+      const bestBuffered = buffered[0];
+
+      if (bestBuffered && bestBuffered.proposedResponse) {
+        const responseText = bestBuffered.proposedResponse;
+
+        await storage.markAnalysisTriggered(bestBuffered.id);
+
+        const entry = await storage.createConversationEntry({
+          roomId,
+          speaker: model.name,
+          content: responseText,
+        });
+
+        await storage.createOutboundCall({
+          roomId,
+          modelId: model.id,
+          triggerReason: bestBuffered.analysis || "Buffered response",
+          responseContent: responseText,
+          status: "completed",
+        });
+
+        console.log(`[force-speak] ${model.name} delivered buffered response (analysis #${bestBuffered.id}, confidence ${bestBuffered.confidence})`);
+        return res.status(201).json({ entry, analysis: bestBuffered, triggered: true, philosopher: model.name, source: "buffered" });
       }
 
       const recentEntries = allEntries.slice(-20);
@@ -747,8 +777,8 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
         status: "completed",
       });
 
-      console.log(`[force-speak] ${model.name} generated fresh response`);
-      res.status(201).json({ entry, analysis, triggered: true, philosopher: model.name });
+      console.log(`[force-speak] ${model.name} generated fresh response (no buffered available)`);
+      res.status(201).json({ entry, analysis, triggered: true, philosopher: model.name, source: "fresh" });
     } catch (error) {
       console.error("Error in force-speak:", error);
       res.status(500).json({ error: "Failed to generate response" });
