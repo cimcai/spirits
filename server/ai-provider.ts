@@ -136,6 +136,12 @@ export async function analyzeConversation(
   modelPersona: string,
   conversationContext: string
 ): Promise<AnalysisResult> {
+  const isLibrarian = modelName.toLowerCase().includes("librarian");
+  const wordLimit = isLibrarian ? 40 : 20;
+  const responseInstruction = isLibrarian
+    ? `IMPORTANT: Your "response" MUST be 40 words or fewer. Always include a REAL, EXACT quote with full citation in this format: "exact quote" — Author, Title (Year). Never paraphrase or fabricate quotes.`
+    : `IMPORTANT: Your "response" MUST be 20 words or fewer. Be concise and impactful — distill your wisdom into a single powerful statement.`;
+
   const systemPrompt = `You are ${modelName}. ${modelDescription}. ${modelPersona}
 
 Analyze if you should speak based on your expertise. Be very selective and conservative with your confidence score. Most conversations will NOT warrant your input. Use this scale:
@@ -147,9 +153,9 @@ Analyze if you should speak based on your expertise. Be very selective and conse
 
 Default to low confidence. Only score above 50 when you have a genuinely compelling and specific insight that would meaningfully advance the conversation.
 
-IMPORTANT: Your "response" MUST be 20 words or fewer. Be concise and impactful — distill your wisdom into a single powerful statement.
+${responseInstruction}
 
-Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say (max 20 words)"}`;
+Return JSON: {"shouldSpeak": boolean, "confidence": 0-100, "analysis": "brief reason", "response": "what you would say (max ${wordLimit} words)"}`;
   const userPrompt = `Recent conversation:\n${conversationContext}\n\nShould you contribute?`;
 
   const content = await chatCompletion(
