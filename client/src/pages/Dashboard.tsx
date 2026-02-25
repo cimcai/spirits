@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle, Grid3X3 } from "lucide-react";
 import { Link } from "wouter";
+import CanvasThumbnail from "@/components/CanvasThumbnail";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
 
@@ -306,11 +307,14 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       <header className="border-b sticky top-0 z-50 bg-background">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-app-title">CIMC Spirits</h1>
-            <p className="text-sm text-muted-foreground">
-              AI philosophers in dialogue
-            </p>
+          <div className="flex items-center gap-3">
+            <CanvasThumbnail pixelSize={2} />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight" data-testid="text-app-title">CIMC Spirits</h1>
+              <p className="text-sm text-muted-foreground">
+                AI philosophers in dialogue
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {room && (
