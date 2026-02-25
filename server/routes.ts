@@ -8,6 +8,7 @@ import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
 import { detectFeatureRequest, scanBacklogWithLain } from "./github";
+import { startGame, answerQuestion, getGameStatus, getLeaderboard } from "./bridge-game";
 
 async function logLatency(
   operation: string,
@@ -85,6 +86,12 @@ export async function registerRoutes(
           status: { method: "GET", path: "/api/personaplex/status", description: "Check PersonaPlex server health and get connection info" },
           configure: { method: "POST", path: "/api/personaplex/configure", description: "Update PersonaPlex configuration", body: { serverUrl: "string (WebSocket URL)", textPrompt: "string (persona)", voicePrompt: "string (voice file)" } },
           trigger: { method: "POST", path: "/api/personaplex/trigger", description: "Get PersonaPlex connection info for voice interaction", body: { roomId: "number (default 1)" } },
+        },
+        bridgeOfDeath: {
+          start: { method: "POST", path: "/api/bridge/start", description: "Begin a new Bridge of Death game. Answer 3 questions correctly to cross — get one wrong and you're cast into the Gorge of Eternal Peril!", body: { playerName: "string (required)" } },
+          answer: { method: "POST", path: "/api/bridge/answer", description: "Answer the current question", body: { sessionId: "string (required)", answer: "string (required)" } },
+          status: { method: "GET", path: "/api/bridge/status/:sessionId", description: "Check the status of a game session" },
+          leaderboard: { method: "GET", path: "/api/bridge/leaderboard", description: "View the leaderboard of recent players" },
         },
         openForum: {
           getEntries: { method: "GET", path: "/api/open-forum/entries", description: "Get all entries from the Open Forum (no auth required)", params: { limit: "number (default 50, max 200)" } },
@@ -212,6 +219,112 @@ export async function registerRoutes(
       console.error("Error posting to open forum:", error);
       res.status(500).json({ error: "Failed to post message" });
     }
+  });
+
+  app.post("/api/bridge/start", async (req, res) => {
+    try {
+      const { playerName } = req.body;
+      if (!playerName) {
+        return res.status(400).json({ error: "playerName is required. Who dares approach the Bridge of Death?" });
+      }
+
+      const result = await startGame(String(playerName), String(playerName));
+
+      let bridgeRoom = (await db.select().from(roomsTable).where(eq(roomsTable.name, "Bridge of Death")).limit(1))[0];
+      if (!bridgeRoom) {
+        bridgeRoom = await storage.createRoom({
+          name: "Bridge of Death",
+          description: "Answer three questions to cross the Bridge of Death.",
+          isActive: true,
+        });
+      }
+
+      await storage.createConversationEntry({
+        roomId: bridgeRoom.id,
+        speaker: "Bridgekeeper",
+        content: `${result.greeting} [${playerName} approaches the bridge]`,
+      });
+      await storage.createConversationEntry({
+        roomId: bridgeRoom.id,
+        speaker: "Bridgekeeper",
+        content: result.question,
+      });
+
+      console.log(`[bridge] ${playerName} started a game (session: ${result.sessionId})`);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error starting bridge game:", error);
+      res.status(500).json({ error: "The Bridgekeeper is having a bad day. Try again." });
+    }
+  });
+
+  app.post("/api/bridge/answer", async (req, res) => {
+    try {
+      const { sessionId, answer } = req.body;
+      if (!sessionId || !answer) {
+        return res.status(400).json({ error: "sessionId and answer are required" });
+      }
+
+      const session = getGameStatus(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "No active game session. POST to /api/bridge/start to begin." });
+      }
+
+      const result = answerQuestion(sessionId, String(answer));
+
+      let bridgeRoom = (await db.select().from(roomsTable).where(eq(roomsTable.name, "Bridge of Death")).limit(1))[0];
+      if (bridgeRoom) {
+        await storage.createConversationEntry({
+          roomId: bridgeRoom.id,
+          speaker: session.playerName,
+          content: String(answer),
+        });
+        await storage.createConversationEntry({
+          roomId: bridgeRoom.id,
+          speaker: "Bridgekeeper",
+          content: result.message,
+        });
+        if (result.nextQuestion) {
+          await storage.createConversationEntry({
+            roomId: bridgeRoom.id,
+            speaker: "Bridgekeeper",
+            content: result.nextQuestion,
+          });
+        }
+      }
+
+      const emoji = result.gameOver
+        ? (result.won ? "🏆" : "💀")
+        : (result.correct ? "✓" : "✗");
+      console.log(`[bridge] ${session.playerName} ${emoji} Q${result.score.answered}: "${answer}" → ${result.correct ? "correct" : "wrong"}`);
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error answering bridge question:", error);
+      res.status(500).json({ error: "The Bridgekeeper got confused. Try again." });
+    }
+  });
+
+  app.get("/api/bridge/status/:sessionId", (req, res) => {
+    const session = getGameStatus(req.params.sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+    res.json({
+      playerName: session.playerName,
+      status: session.status,
+      questionNumber: session.questionNumber,
+      answers: session.answers,
+      score: {
+        answered: session.answers.length,
+        correct: session.answers.filter(a => a.correct).length,
+        total: 3,
+      },
+    });
+  });
+
+  app.get("/api/bridge/leaderboard", (_req, res) => {
+    res.json(getLeaderboard());
   });
 
   // Get conversation entries for a room

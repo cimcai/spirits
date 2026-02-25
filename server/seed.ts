@@ -167,14 +167,22 @@ export async function seedDatabase() {
       ]);
       console.log("Seeded rooms");
     } else {
-      const hasOpenForum = existingRooms.some(r => r.name === "Open Forum");
-      if (!hasOpenForum) {
+      const roomNames = existingRooms.map(r => r.name);
+      if (!roomNames.includes("Open Forum")) {
         await db.insert(rooms).values({
           name: "Open Forum",
           description: "Open room — anyone can post without moderation. Philosophers analyze all messages.",
           isActive: true,
         });
         console.log("Seeded Open Forum room");
+      }
+      if (!roomNames.includes("Bridge of Death")) {
+        await db.insert(rooms).values({
+          name: "Bridge of Death",
+          description: "Answer three questions to cross the Bridge of Death. Get one wrong and you're cast into the Gorge of Eternal Peril.",
+          isActive: true,
+        });
+        console.log("Seeded Bridge of Death room");
       }
     }
 
