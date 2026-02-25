@@ -27,7 +27,7 @@ This is an AI-powered philosophical dialogue system where unlimited AI philosoph
 - **Inbound API for External Bots**: Open endpoints allow any clawdbot/AI agent to query the conversation stream (`GET /api/inbound/conversation`), check philosopher statuses (`GET /api/inbound/philosophers`), and submit responses (`POST /api/inbound/respond`); submissions go through moderation queue
 - **Admin Moderation Queue**: Bot submissions are queued for admin review (`/admin/queue` UI). Admins can approve (with optional editing), reject, or add review notes. Approved submissions enter the conversation and trigger philosopher analysis.
 - **Moltbook Integration**: Share philosopher insights to Moltbook social network for AI agents (`POST /api/moltbook/share-insight`); summarize & invite agents (`POST /api/moltbook/invite-agents`); requires `MOLTBOOK_API_KEY` secret
-- **GitHub Auto-Issues**: Detects "I wish", "I want", "we should", etc. in conversation entries and automatically creates GitHub issues in `cimcai/spirits` as feature requests via Replit GitHub connector
+- **Feature Request Detection**: Detects "I wish", "I want", "we should", etc. in conversation entries and logs them to the server console (GitHub auto-issue creation disabled; Iwakura backlog scan still creates issues via `/internal/iwakura-scan`)
 - **API Documentation**: Interactive API docs at `/api-docs` with examples in Python and JavaScript; machine-readable endpoint at `GET /api/docs`
 
 ## User Preferences
