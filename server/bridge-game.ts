@@ -1,11 +1,15 @@
 import { chatCompletion } from "./ai-provider";
 
+type GameMode = "bridge" | "gauntlet";
+
 interface GameSession {
   playerId: string;
   playerName: string;
+  mode: GameMode;
   questionNumber: number;
-  questions: { question: string; answer: string; category: string }[];
-  answers: { question: string; playerAnswer: string; correct: boolean }[];
+  totalQuestions: number;
+  questions: { question: string; answer: string; category: string; difficulty: string }[];
+  answers: { question: string; playerAnswer: string; correct: boolean; difficulty: string }[];
   status: "active" | "won" | "lost";
   startedAt: Date;
   lastActivityAt: Date;
@@ -43,35 +47,81 @@ const BRIDGEKEEPER_LINES = {
   ],
 };
 
+const GAUNTLET_LINES = {
+  greeting: [
+    "Welcome to The Gauntlet, foolish mortal. TEN questions stand between you and glory. One wrong answer and you're DONE.",
+    "Ah, a brave one! The Gauntlet demands perfection — 10 questions, each harder than the last. Fail once and you fall.",
+    "So you think you're clever? The Gauntlet has broken the wisest minds. 10 questions. Zero mercy. Begin!",
+  ],
+  correct: [
+    "Correct. Don't get cocky.",
+    "Right... but it gets harder from here.",
+    "Lucky guess? Or do you actually know things?",
+    "Fine. You got that one.",
+    "Impressive. But the next one will break you.",
+    "Not bad. Not bad at all.",
+    "You're still standing. Barely.",
+    "Hmm, the challenger persists...",
+  ],
+  halfway: [
+    "Five down, five to go. You're in the deep water now.",
+    "Halfway through! Most don't make it this far. The questions only get nastier.",
+    "You've survived five. But the second half is where champions are made... or destroyed.",
+  ],
+  wrong: [
+    "WRONG! The Gauntlet claims another victim! You fell at step %d of 10!",
+    "Incorrect! So close, yet so far! Eliminated at step %d!",
+    "That's WRONG! The Gauntlet devours you at step %d! *trapdoor opens*",
+    "FAILURE at step %d! The Gauntlet shows no mercy!",
+  ],
+  victory: [
+    "IMPOSSIBLE! You've completed The Gauntlet! 10 for 10! You are a true champion of knowledge!",
+    "I... I can't believe it. Perfect score. The Gauntlet bows to you. You are LEGENDARY.",
+    "TEN OUT OF TEN?! In all my years... you've done the impossible. The Gauntlet acknowledges your supremacy!",
+  ],
+};
+
+const ORDINALS = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
+
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-async function generateQuestions(): Promise<{ question: string; answer: string; category: string }[]> {
+async function generateQuestions(count: number): Promise<{ question: string; answer: string; category: string; difficulty: string }[]> {
   const categories = [
     "philosophy", "science", "history", "literature", "mythology",
     "mathematics", "art", "technology", "geography", "music",
+    "astronomy", "biology", "psychology", "linguistics", "economics",
   ];
-  const chosen = [];
+  const chosen: string[] = [];
   const used = new Set<string>();
-  while (chosen.length < 3) {
+  while (chosen.length < count) {
     const cat = categories[Math.floor(Math.random() * categories.length)];
-    if (!used.has(cat)) {
+    if (!used.has(cat) || chosen.length >= categories.length) {
       used.add(cat);
       chosen.push(cat);
     }
   }
 
-  const prompt = `Generate exactly 3 trivia questions for a Monty Python "Bridge of Death" style game. The questions should range from easy to tricky (question 3 should be the hardest). Use these categories: ${chosen.join(", ")}.
+  const difficulties = count === 3
+    ? ["easy", "medium", "hard"]
+    : ["easy", "easy", "medium", "medium", "medium", "hard", "hard", "hard", "expert", "expert"];
+
+  const prompt = `Generate exactly ${count} trivia questions for a quiz game. Each question gets progressively harder.
+
+Categories to use (one per question): ${chosen.join(", ")}
+Difficulties in order: ${difficulties.join(", ")}
 
 Requirements:
-- Questions should be specific and have ONE clear correct answer
-- Mix difficulty: Q1 = easy, Q2 = medium, Q3 = hard/tricky (like "What is the airspeed velocity of an unladen swallow?")
-- Keep questions short and punchy
+- Each question must have ONE clear, specific correct answer
+- Easy = common knowledge, Medium = educated guess, Hard = specialist knowledge, Expert = obscure/tricky
+- Questions should be short and punchy (1-2 sentences max)
 - Answers should be brief (1-5 words)
+- Make expert questions genuinely challenging — trick questions, obscure facts, or counterintuitive answers welcome
+- Do NOT repeat themes across questions
 
 Return ONLY valid JSON array, no other text:
-[{"question": "...", "answer": "...", "category": "${chosen[0]}"},{"question": "...", "answer": "...", "category": "${chosen[1]}"},{"question": "...", "answer": "...", "category": "${chosen[2]}"}]`;
+[${chosen.map((cat, i) => `{"question": "...", "answer": "...", "category": "${cat}", "difficulty": "${difficulties[i]}"}`).join(",")}]`;
 
   const content = await chatCompletion(
     "gpt-4o-mini",
@@ -86,11 +136,15 @@ Return ONLY valid JSON array, no other text:
     }
     return JSON.parse(content);
   } catch {
-    return [
-      { question: "What is your name?", answer: "flexible", category: "identity" },
-      { question: "What is your quest?", answer: "flexible", category: "purpose" },
-      { question: "What is the airspeed velocity of an unladen swallow?", answer: "African or European?", category: "ornithology" },
+    const fallback = [
+      { question: "What is your name?", answer: "flexible", category: "identity", difficulty: "easy" },
+      { question: "What is your quest?", answer: "flexible", category: "purpose", difficulty: "easy" },
+      { question: "What is the airspeed velocity of an unladen swallow?", answer: "African or European?", category: "ornithology", difficulty: "expert" },
     ];
+    while (fallback.length < count) {
+      fallback.push({ question: "What is the meaning of life?", answer: "42", category: "philosophy", difficulty: "hard" });
+    }
+    return fallback.slice(0, count);
   }
 }
 
@@ -124,20 +178,26 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-export async function startGame(playerId: string, playerName: string): Promise<{
+export async function startGame(playerId: string, playerName: string, mode: GameMode = "bridge"): Promise<{
   sessionId: string;
+  mode: GameMode;
+  totalQuestions: number;
   greeting: string;
   question: string;
   questionNumber: number;
   category: string;
+  difficulty: string;
 }> {
-  const questions = await generateQuestions();
-  const sessionId = `bridge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const totalQuestions = mode === "gauntlet" ? 10 : 3;
+  const questions = await generateQuestions(totalQuestions);
+  const sessionId = `${mode}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const session: GameSession = {
     playerId,
     playerName,
+    mode,
     questionNumber: 1,
+    totalQuestions,
     questions,
     answers: [],
     status: "active",
@@ -147,12 +207,17 @@ export async function startGame(playerId: string, playerName: string): Promise<{
 
   activeSessions.set(sessionId, session);
 
+  const lines = mode === "gauntlet" ? GAUNTLET_LINES : BRIDGEKEEPER_LINES;
+
   return {
     sessionId,
-    greeting: pick(BRIDGEKEEPER_LINES.greeting),
-    question: `Question the First: ${questions[0].question}`,
+    mode,
+    totalQuestions,
+    greeting: pick(lines.greeting),
+    question: `Question the ${ORDINALS[0]}: ${questions[0].question}`,
     questionNumber: 1,
     category: questions[0].category,
+    difficulty: questions[0].difficulty,
   };
 }
 
@@ -164,29 +229,35 @@ export function answerQuestion(sessionId: string, answer: string): {
   nextQuestion?: string;
   nextQuestionNumber?: number;
   nextCategory?: string;
+  nextDifficulty?: string;
   correctAnswer?: string;
   score: { answered: number; correct: number; total: number };
+  mode: GameMode;
 } {
   const session = activeSessions.get(sessionId);
   if (!session) {
     return {
       correct: false,
-      message: "No active game session found. POST to /api/bridge/start to begin a new game.",
+      message: "No active game session found. Start a new game.",
       gameOver: true,
       won: false,
       score: { answered: 0, correct: 0, total: 3 },
+      mode: "bridge",
     };
   }
+
+  const lines = session.mode === "gauntlet" ? GAUNTLET_LINES : BRIDGEKEEPER_LINES;
 
   if (session.status !== "active") {
     return {
       correct: false,
       message: session.status === "won"
-        ? "You already crossed the bridge! Start a new game if you dare."
-        : "You were already cast into the Gorge of Eternal Peril! Start a new game.",
+        ? "You already won! Start a new game if you dare."
+        : "You already fell! Start a new game.",
       gameOver: true,
       won: session.status === "won",
-      score: { answered: session.answers.length, correct: session.answers.filter(a => a.correct).length, total: 3 },
+      score: { answered: session.answers.length, correct: session.answers.filter(a => a.correct).length, total: session.totalQuestions },
+      mode: session.mode,
     };
   }
 
@@ -198,50 +269,63 @@ export function answerQuestion(sessionId: string, answer: string): {
     question: currentQ.question,
     playerAnswer: answer,
     correct: isCorrect,
+    difficulty: currentQ.difficulty,
   });
 
   const score = {
     answered: session.answers.length,
     correct: session.answers.filter(a => a.correct).length,
-    total: 3,
+    total: session.totalQuestions,
   };
 
   if (!isCorrect) {
     session.status = "lost";
+    const wrongMsg = session.mode === "gauntlet"
+      ? pick(GAUNTLET_LINES.wrong).replace("%d", String(session.questionNumber))
+      : pick(BRIDGEKEEPER_LINES.wrong);
     return {
       correct: false,
-      message: `${pick(BRIDGEKEEPER_LINES.wrong)} The correct answer was: "${currentQ.answer}". You answered ${score.correct} of ${score.total} correctly. You have been flung into the Gorge of Eternal Peril!`,
+      message: `${wrongMsg} The correct answer was: "${currentQ.answer}". You scored ${score.correct} of ${score.total}.`,
       gameOver: true,
       won: false,
       correctAnswer: currentQ.answer,
       score,
+      mode: session.mode,
     };
   }
 
-  if (session.questionNumber >= 3) {
+  if (session.questionNumber >= session.totalQuestions) {
     session.status = "won";
     return {
       correct: true,
-      message: `${pick(BRIDGEKEEPER_LINES.correct)} ${pick(BRIDGEKEEPER_LINES.victory)} You answered all ${score.total} questions correctly!`,
+      message: `${pick(lines.correct)} ${pick(lines.victory)} Perfect score: ${score.total}/${score.total}!`,
       gameOver: true,
       won: true,
       score,
+      mode: session.mode,
     };
   }
 
   session.questionNumber++;
   const nextQ = session.questions[session.questionNumber - 1];
-  const ordinal = session.questionNumber === 2 ? "Second" : "Third";
+  const ordinal = ORDINALS[session.questionNumber - 1] || `#${session.questionNumber}`;
+
+  let extraMsg = "";
+  if (session.mode === "gauntlet" && session.questionNumber === 6) {
+    extraMsg = " " + pick(GAUNTLET_LINES.halfway);
+  }
 
   return {
     correct: true,
-    message: pick(BRIDGEKEEPER_LINES.correct),
+    message: `${pick(lines.correct)}${extraMsg}`,
     gameOver: false,
     won: false,
     nextQuestion: `Question the ${ordinal}: ${nextQ.question}`,
     nextQuestionNumber: session.questionNumber,
     nextCategory: nextQ.category,
+    nextDifficulty: nextQ.difficulty,
     score,
+    mode: session.mode,
   };
 }
 
@@ -249,14 +333,17 @@ export function getGameStatus(sessionId: string): GameSession | null {
   return activeSessions.get(sessionId) || null;
 }
 
-export function getLeaderboard(): { playerName: string; won: boolean; score: number; time: number }[] {
-  const results: { playerName: string; won: boolean; score: number; time: number }[] = [];
+export function getLeaderboard(mode?: GameMode): { playerName: string; mode: GameMode; won: boolean; score: number; total: number; time: number }[] {
+  const results: { playerName: string; mode: GameMode; won: boolean; score: number; total: number; time: number }[] = [];
   for (const session of activeSessions.values()) {
     if (session.status !== "active") {
+      if (mode && session.mode !== mode) continue;
       results.push({
         playerName: session.playerName,
+        mode: session.mode,
         won: session.status === "won",
         score: session.answers.filter(a => a.correct).length,
+        total: session.totalQuestions,
         time: session.lastActivityAt.getTime() - session.startedAt.getTime(),
       });
     }

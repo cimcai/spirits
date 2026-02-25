@@ -88,10 +88,10 @@ export async function registerRoutes(
           trigger: { method: "POST", path: "/api/personaplex/trigger", description: "Get PersonaPlex connection info for voice interaction", body: { roomId: "number (default 1)" } },
         },
         bridgeOfDeath: {
-          start: { method: "POST", path: "/api/bridge/start", description: "Begin a new Bridge of Death game. Answer 3 questions correctly to cross — get one wrong and you're cast into the Gorge of Eternal Peril!", body: { playerName: "string (required)" } },
+          start: { method: "POST", path: "/api/bridge/start", description: "Begin a new game. mode='bridge' = 3 questions (default), mode='gauntlet' = 10 progressively harder questions. One wrong answer = elimination!", body: { playerName: "string (required)", mode: "string ('bridge' or 'gauntlet', default 'bridge')" } },
           answer: { method: "POST", path: "/api/bridge/answer", description: "Answer the current question", body: { sessionId: "string (required)", answer: "string (required)" } },
           status: { method: "GET", path: "/api/bridge/status/:sessionId", description: "Check the status of a game session" },
-          leaderboard: { method: "GET", path: "/api/bridge/leaderboard", description: "View the leaderboard of recent players" },
+          leaderboard: { method: "GET", path: "/api/bridge/leaderboard", description: "View the leaderboard. Optional ?mode=bridge or ?mode=gauntlet to filter" },
         },
         openForum: {
           getEntries: { method: "GET", path: "/api/open-forum/entries", description: "Get all entries from the Open Forum (no auth required)", params: { limit: "number (default 50, max 200)" } },
@@ -228,7 +228,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: "playerName is required. Who dares approach the Bridge of Death?" });
       }
 
-      const result = await startGame(String(playerName), String(playerName));
+      const mode = req.body.mode === "gauntlet" ? "gauntlet" : "bridge";
+      const result = await startGame(String(playerName), String(playerName), mode as any);
 
       let bridgeRoom = (await db.select().from(roomsTable).where(eq(roomsTable.name, "Bridge of Death")).limit(1))[0];
       if (!bridgeRoom) {
@@ -323,8 +324,10 @@ export async function registerRoutes(
     });
   });
 
-  app.get("/api/bridge/leaderboard", (_req, res) => {
-    res.json(getLeaderboard());
+  app.get("/api/bridge/leaderboard", (req, res) => {
+    const mode = req.query.mode as string | undefined;
+    const validMode = mode === "bridge" || mode === "gauntlet" ? mode : undefined;
+    res.json(getLeaderboard(validMode));
   });
 
   // Get conversation entries for a room
