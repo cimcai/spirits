@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/schema";
+import { db } from "./db";
+import { insertConversationEntrySchema, insertAiModelSchema, rooms as roomsTable } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
@@ -84,6 +86,11 @@ export async function registerRoutes(
           configure: { method: "POST", path: "/api/personaplex/configure", description: "Update PersonaPlex configuration", body: { serverUrl: "string (WebSocket URL)", textPrompt: "string (persona)", voicePrompt: "string (voice file)" } },
           trigger: { method: "POST", path: "/api/personaplex/trigger", description: "Get PersonaPlex connection info for voice interaction", body: { roomId: "number (default 1)" } },
         },
+        openForum: {
+          getEntries: { method: "GET", path: "/api/open-forum/entries", description: "Get all entries from the Open Forum (no auth required)", params: { limit: "number (default 50, max 200)" } },
+          post: { method: "POST", path: "/api/open-forum/post", description: "Post a message to the Open Forum — no moderation, goes live immediately and triggers philosopher analysis", body: { speaker: "string (required)", content: "string (required)" } },
+          rooms: { method: "GET", path: "/api/rooms/list", description: "List all available rooms" },
+        },
         moltbook: {
           post: { method: "POST", path: "/api/moltbook/post", description: "Post to Moltbook (requires MOLTBOOK_API_KEY)", body: { title: "string", content: "string", submolt: "string (default 'general')" } },
           shareInsight: { method: "POST", path: "/api/moltbook/share-insight", description: "Share philosopher insight to Moltbook", body: { analysisId: "number" } },
@@ -108,6 +115,102 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching active room:", error);
       res.status(500).json({ error: "Failed to fetch room" });
+    }
+  });
+
+  app.get("/api/rooms/list", async (_req, res) => {
+    try {
+      const allRooms = await db.select().from(roomsTable);
+      res.json(allRooms);
+    } catch (error) {
+      console.error("Error listing rooms:", error);
+      res.status(500).json({ error: "Failed to list rooms" });
+    }
+  });
+
+  app.get("/api/open-forum/entries", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const forumRoom = await db.select().from(roomsTable).where(eq(roomsTable.name, "Open Forum")).limit(1);
+      if (forumRoom.length === 0) {
+        return res.json([]);
+      }
+      const entries = await storage.getEntriesByRoom(forumRoom[0].id);
+      res.json(entries.slice(-limit));
+    } catch (error) {
+      console.error("Error fetching open forum entries:", error);
+      res.status(500).json({ error: "Failed to fetch entries" });
+    }
+  });
+
+  app.post("/api/open-forum/post", async (req, res) => {
+    try {
+      const { speaker, content } = req.body;
+      if (!speaker || !content) {
+        return res.status(400).json({ error: "speaker and content are required" });
+      }
+      if (String(content).length > 2000) {
+        return res.status(400).json({ error: "Content must be 2000 characters or fewer" });
+      }
+
+      let forumRoom = (await db.select().from(roomsTable).where(eq(roomsTable.name, "Open Forum")).limit(1))[0];
+      if (!forumRoom) {
+        forumRoom = await storage.createRoom({
+          name: "Open Forum",
+          description: "Open room — anyone can post without moderation. Philosophers analyze all messages.",
+          isActive: true,
+        });
+      }
+
+      const entry = await storage.createConversationEntry({
+        roomId: forumRoom.id,
+        speaker: String(speaker),
+        content: String(content),
+      });
+
+      if (detectFeatureRequest(String(content))) {
+        console.log(`[feature-request] Detected in Open Forum from ${speaker}: "${String(content).substring(0, 100)}"`);
+      }
+
+      const models = await storage.getAllAiModels();
+      const activeModels = models.filter(m => m.isActive);
+      const allEntries = await storage.getEntriesByRoom(forumRoom.id);
+
+      const context10 = allEntries.slice(-10).map(e => `${e.speaker}: ${e.content}`).join("\n");
+      const context30 = allEntries.slice(-30).map(e => `${e.speaker}: ${e.content}`).join("\n");
+
+      res.status(201).json({
+        entry,
+        message: `Posted to Open Forum. ${activeModels.length} philosophers analyzing.`,
+      });
+
+      for (const model of activeModels) {
+        try {
+          const llmModel = model.llmModel || "gpt-4o-mini";
+          const isDeepModel = llmModel.includes("opus") || llmModel.includes("sonnet");
+          const conversationContext = isDeepModel ? context30 : context10;
+          const result = await logLatency(
+            "analysis", llmModel, getProvider(llmModel),
+            () => analyzeConversation(llmModel, model.name, model.description || "", model.persona, conversationContext),
+            { roomId: forumRoom.id, modelId: model.id, metadata: { philosopherName: model.name } }
+          );
+          await storage.createModelAnalysis({
+            roomId: forumRoom.id,
+            modelId: model.id,
+            conversationEntryId: entry.id,
+            confidence: result.confidence || 0,
+            analysis: result.analysis || "No analysis provided",
+            proposedResponse: result.response || null,
+            shouldSpeak: result.shouldSpeak || false,
+            isTriggered: false,
+          });
+        } catch (err) {
+          console.error(`Analysis error for ${model.name} in Open Forum:`, err);
+        }
+      }
+    } catch (error) {
+      console.error("Error posting to open forum:", error);
+      res.status(500).json({ error: "Failed to post message" });
     }
   });
 

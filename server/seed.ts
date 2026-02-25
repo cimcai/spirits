@@ -151,14 +151,31 @@ You are a living jukebox of wisdom — you play the track, not describe it.`,
 
 export async function seedDatabase() {
   try {
-    const existingRooms = await db.select().from(rooms).limit(1);
+    const existingRooms = await db.select().from(rooms);
     if (existingRooms.length === 0) {
-      await db.insert(rooms).values({
-        name: "Main Conference Room",
-        description: "Primary meeting room for conversation monitoring",
-        isActive: true,
-      });
-      console.log("Seeded room");
+      await db.insert(rooms).values([
+        {
+          name: "Main Conference Room",
+          description: "Primary meeting room for conversation monitoring",
+          isActive: true,
+        },
+        {
+          name: "Open Forum",
+          description: "Open room — anyone can post without moderation. Philosophers analyze all messages.",
+          isActive: true,
+        },
+      ]);
+      console.log("Seeded rooms");
+    } else {
+      const hasOpenForum = existingRooms.some(r => r.name === "Open Forum");
+      if (!hasOpenForum) {
+        await db.insert(rooms).values({
+          name: "Open Forum",
+          description: "Open room — anyone can post without moderation. Philosophers analyze all messages.",
+          isActive: true,
+        });
+        console.log("Seeded Open Forum room");
+      }
     }
 
     const existingModels = await db.select().from(aiModels);

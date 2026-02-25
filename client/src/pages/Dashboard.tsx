@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX } from "lucide-react";
+import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
@@ -334,6 +334,11 @@ export default function Dashboard() {
               <Mic className="h-4 w-4" />
               {showPersonaPlex ? "Close Voice" : "PersonaPlex Voice"}
             </Button>
+            <Link href="/forum">
+              <Button variant="ghost" size="icon" data-testid="button-forum">
+                <MessageCircle />
+              </Button>
+            </Link>
             <Link href="/analytics">
               <Button variant="ghost" size="icon" data-testid="button-analytics">
                 <BarChart3 />
