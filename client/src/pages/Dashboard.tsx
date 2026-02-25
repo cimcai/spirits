@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle } from "lucide-react";
+import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle, Grid3X3 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
@@ -337,6 +337,11 @@ export default function Dashboard() {
             <Link href="/forum">
               <Button variant="ghost" size="icon" data-testid="button-forum">
                 <MessageCircle />
+              </Button>
+            </Link>
+            <Link href="/canvas">
+              <Button variant="ghost" size="icon" data-testid="button-canvas">
+                <Grid3X3 />
               </Button>
             </Link>
             <Link href="/analytics">

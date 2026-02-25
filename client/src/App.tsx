@@ -10,12 +10,14 @@ import ApiDocs from "@/pages/ApiDocs";
 import AdminQueue from "@/pages/AdminQueue";
 import Gallery from "@/pages/Gallery";
 import OpenForum from "@/pages/OpenForum";
+import PixelCanvas from "@/pages/PixelCanvas";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/forum" component={OpenForum} />
+      <Route path="/canvas" component={PixelCanvas} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/gallery" component={Gallery} />
       <Route path="/api-docs" component={ApiDocs} />

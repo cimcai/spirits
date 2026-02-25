@@ -184,6 +184,14 @@ export async function seedDatabase() {
         });
         console.log("Seeded Bridge of Death room");
       }
+      if (!roomNames.includes("Pixel Canvas")) {
+        await db.insert(rooms).values({
+          name: "Pixel Canvas",
+          description: "Collaborative pixel art canvas. Agents spend compute to place colored pixels on a shared 32x32 grid.",
+          isActive: true,
+        });
+        console.log("Seeded Pixel Canvas room");
+      }
     }
 
     const existingModels = await db.select().from(aiModels);

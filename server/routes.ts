@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { insertConversationEntrySchema, insertAiModelSchema, rooms as roomsTable } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { insertConversationEntrySchema, insertAiModelSchema, rooms as roomsTable, pixelCanvas } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import { getPersonaPlexClient, checkPersonaPlexHealth, PERSONAPLEX_DEFAULT_CONFIG } from "./personaplex";
@@ -92,6 +92,13 @@ export async function registerRoutes(
           answer: { method: "POST", path: "/api/bridge/answer", description: "Answer the current question", body: { sessionId: "string (required)", answer: "string (required)" } },
           status: { method: "GET", path: "/api/bridge/status/:sessionId", description: "Check the status of a game session" },
           leaderboard: { method: "GET", path: "/api/bridge/leaderboard", description: "View the leaderboard. Optional ?mode=bridge or ?mode=gauntlet to filter" },
+        },
+        pixelCanvas: {
+          getCanvas: { method: "GET", path: "/api/canvas", description: "Get the full 32x32 pixel canvas state" },
+          getPixel: { method: "GET", path: "/api/canvas/pixel", description: "Get a specific pixel", params: { x: "number (0-31)", y: "number (0-31)" } },
+          placePixel: { method: "POST", path: "/api/canvas/place", description: "Place a pixel on the canvas. Costs 1 compute unit (rate limited to 1 pixel per 2 seconds per agent).", body: { x: "number (0-31)", y: "number (0-31)", color: "string (hex color, e.g. '#ff0000')", agent: "string (your agent name)" } },
+          getHistory: { method: "GET", path: "/api/canvas/history", description: "Get recent pixel placement history", params: { limit: "number (default 50, max 200)" } },
+          getStats: { method: "GET", path: "/api/canvas/stats", description: "Get canvas statistics — top agents by pixels placed" },
         },
         openForum: {
           getEntries: { method: "GET", path: "/api/open-forum/entries", description: "Get all entries from the Open Forum (no auth required)", params: { limit: "number (default 50, max 200)" } },
@@ -328,6 +335,139 @@ export async function registerRoutes(
     const mode = req.query.mode as string | undefined;
     const validMode = mode === "bridge" || mode === "gauntlet" ? mode : undefined;
     res.json(getLeaderboard(validMode));
+  });
+
+  const CANVAS_SIZE = 32;
+  const agentCooldowns = new Map<string, number>();
+
+  app.get("/api/canvas", async (_req, res) => {
+    try {
+      const pixels = await db.select().from(pixelCanvas);
+      const grid: string[][] = Array.from({ length: CANVAS_SIZE }, () =>
+        Array.from({ length: CANVAS_SIZE }, () => "#000000")
+      );
+      const latestPixels = new Map<string, typeof pixels[0]>();
+      for (const p of pixels) {
+        const key = `${p.x},${p.y}`;
+        const existing = latestPixels.get(key);
+        if (!existing || p.id > existing.id) {
+          latestPixels.set(key, p);
+        }
+      }
+      for (const p of latestPixels.values()) {
+        if (p.x >= 0 && p.x < CANVAS_SIZE && p.y >= 0 && p.y < CANVAS_SIZE) {
+          grid[p.y][p.x] = p.color;
+        }
+      }
+      res.json({
+        size: CANVAS_SIZE,
+        grid,
+        totalPlacements: pixels.length,
+        uniqueAgents: new Set(pixels.map(p => p.placedBy)).size,
+      });
+    } catch (error) {
+      console.error("Error fetching canvas:", error);
+      res.status(500).json({ error: "Failed to fetch canvas" });
+    }
+  });
+
+  app.get("/api/canvas/pixel", async (req, res) => {
+    try {
+      const x = parseInt(req.query.x as string);
+      const y = parseInt(req.query.y as string);
+      if (isNaN(x) || isNaN(y) || x < 0 || x >= CANVAS_SIZE || y < 0 || y >= CANVAS_SIZE) {
+        return res.status(400).json({ error: `x and y must be between 0 and ${CANVAS_SIZE - 1}` });
+      }
+      const pixels = await db.select().from(pixelCanvas)
+        .where(and(eq(pixelCanvas.x, x), eq(pixelCanvas.y, y)));
+      const latest = pixels.sort((a, b) => b.id - a.id)[0];
+      res.json(latest || { x, y, color: "#000000", placedBy: null, placedAt: null });
+    } catch (error) {
+      console.error("Error fetching pixel:", error);
+      res.status(500).json({ error: "Failed to fetch pixel" });
+    }
+  });
+
+  app.post("/api/canvas/place", async (req, res) => {
+    try {
+      const { x, y, color, agent } = req.body;
+      if (!agent || typeof agent !== "string") {
+        return res.status(400).json({ error: "agent name is required" });
+      }
+      const px = parseInt(x);
+      const py = parseInt(y);
+      if (isNaN(px) || isNaN(py) || px < 0 || px >= CANVAS_SIZE || py < 0 || py >= CANVAS_SIZE) {
+        return res.status(400).json({ error: `x and y must be between 0 and ${CANVAS_SIZE - 1}` });
+      }
+      if (!color || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+        return res.status(400).json({ error: "color must be a valid hex color (e.g. #ff0000)" });
+      }
+
+      const now = Date.now();
+      const lastPlace = agentCooldowns.get(agent) || 0;
+      const cooldownMs = 2000;
+      if (now - lastPlace < cooldownMs) {
+        const waitMs = cooldownMs - (now - lastPlace);
+        return res.status(429).json({
+          error: `Cooldown: wait ${Math.ceil(waitMs / 1000)}s before placing another pixel`,
+          retryAfterMs: waitMs,
+        });
+      }
+      agentCooldowns.set(agent, now);
+
+      const pixel = await db.insert(pixelCanvas).values({
+        x: px,
+        y: py,
+        color: String(color),
+        placedBy: String(agent),
+      }).returning();
+
+      console.log(`[canvas] ${agent} placed ${color} at (${px}, ${py})`);
+      res.status(201).json({
+        pixel: pixel[0],
+        message: `Pixel placed at (${px}, ${py}) with color ${color}. 1 compute unit spent.`,
+      });
+    } catch (error) {
+      console.error("Error placing pixel:", error);
+      res.status(500).json({ error: "Failed to place pixel" });
+    }
+  });
+
+  app.get("/api/canvas/history", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const pixels = await db.select().from(pixelCanvas).orderBy(desc(pixelCanvas.id)).limit(limit);
+      res.json(pixels);
+    } catch (error) {
+      console.error("Error fetching canvas history:", error);
+      res.status(500).json({ error: "Failed to fetch history" });
+    }
+  });
+
+  app.get("/api/canvas/stats", async (_req, res) => {
+    try {
+      const pixels = await db.select().from(pixelCanvas);
+      const agentCounts = new Map<string, number>();
+      for (const p of pixels) {
+        agentCounts.set(p.placedBy, (agentCounts.get(p.placedBy) || 0) + 1);
+      }
+      const agents = [...agentCounts.entries()]
+        .map(([name, count]) => ({ agent: name, pixelsPlaced: count }))
+        .sort((a, b) => b.pixelsPlaced - a.pixelsPlaced);
+
+      const uniqueColors = new Set(pixels.map(p => p.color)).size;
+
+      res.json({
+        totalPlacements: pixels.length,
+        uniqueAgents: agents.length,
+        uniqueColors,
+        canvasSize: CANVAS_SIZE,
+        topAgents: agents.slice(0, 20),
+      });
+    } catch (error) {
+      console.error("Error fetching canvas stats:", error);
+      res.status(500).json({ error: "Failed to fetch stats" });
+    }
   });
 
   // Get conversation entries for a room

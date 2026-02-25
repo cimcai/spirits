@@ -198,5 +198,23 @@ export const insertGeneratedArtSchema = createInsertSchema(generatedArt).omit({
 export type GeneratedArt = typeof generatedArt.$inferSelect;
 export type InsertGeneratedArt = z.infer<typeof insertGeneratedArtSchema>;
 
+// Pixel Canvas - collaborative pixel art for AI agents
+export const pixelCanvas = pgTable("pixel_canvas", {
+  id: serial("id").primaryKey(),
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  color: text("color").notNull().default("#000000"),
+  placedBy: text("placed_by").notNull(),
+  placedAt: timestamp("placed_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertPixelSchema = createInsertSchema(pixelCanvas).omit({
+  id: true,
+  placedAt: true,
+});
+
+export type Pixel = typeof pixelCanvas.$inferSelect;
+export type InsertPixel = z.infer<typeof insertPixelSchema>;
+
 // Re-export chat models for the integration
 export * from "./models/chat";
