@@ -7,7 +7,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Analytics from "@/pages/Analytics";
 import ApiDocs from "@/pages/ApiDocs";
-import AdminQueue from "@/pages/AdminQueue";
+import Admin from "@/pages/Admin";
 import Gallery from "@/pages/Gallery";
 import OpenForum from "@/pages/OpenForum";
 import PixelCanvas from "@/pages/PixelCanvas";
@@ -21,7 +21,8 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/gallery" component={Gallery} />
       <Route path="/api-docs" component={ApiDocs} />
-      <Route path="/admin/queue" component={AdminQueue} />
+      <Route path="/admin" component={Admin} />
+      <Route path="/admin/queue" component={Admin} />
       <Route component={NotFound} />
     </Switch>
   );

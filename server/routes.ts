@@ -470,6 +470,15 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/auth", (req, res) => {
+    const { password } = req.body;
+    const adminPassword = process.env.SESSION_SECRET || "admin";
+    if (password === adminPassword) {
+      return res.json({ authenticated: true });
+    }
+    return res.status(401).json({ authenticated: false, error: "Invalid password" });
+  });
+
   // Get conversation entries for a room
   app.get("/api/rooms/:roomId/entries", async (req, res) => {
     try {

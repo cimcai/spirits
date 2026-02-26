@@ -12,10 +12,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle, Grid3X3 } from "lucide-react";
+import { Radio, BarChart3, BookOpen, Lock, Mic, Volume2, VolumeX, MessageCircle, Grid3X3 } from "lucide-react";
 import { Link } from "wouter";
 import CanvasThumbnail from "@/components/CanvasThumbnail";
-import ExportDialog from "@/components/ExportDialog";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
 
@@ -25,7 +24,6 @@ export default function Dashboard() {
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPersonaPlex, setShowPersonaPlex] = useState(false);
-  const [showExport, setShowExport] = useState(false);
   const [personaPlexMuted, setPersonaPlexMuted] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem("voiceEnabled");
@@ -360,16 +358,11 @@ export default function Dashboard() {
                 <BookOpen />
               </Button>
             </Link>
-            <Link href="/admin/queue">
-              <Button variant="ghost" size="icon" data-testid="button-admin-queue">
-                <Shield />
+            <Link href="/admin">
+              <Button variant="ghost" size="icon" data-testid="button-admin">
+                <Lock />
               </Button>
             </Link>
-            {room && (
-              <Button variant="ghost" size="icon" onClick={() => setShowExport(true)} data-testid="button-export-transcript">
-                <Download />
-              </Button>
-            )}
             <ThemeToggle />
           </div>
         </div>
@@ -597,7 +590,6 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
-      {room && <ExportDialog roomId={room.id} open={showExport} onClose={() => setShowExport(false)} />}
     </div>
   );
 }
