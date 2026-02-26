@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Radio, BarChart3, BookOpen, Shield, Download, Mic, Volume2, VolumeX, MessageCircle, Grid3X3 } from "lucide-react";
 import { Link } from "wouter";
 import CanvasThumbnail from "@/components/CanvasThumbnail";
+import ExportDialog from "@/components/ExportDialog";
 import { Button } from "@/components/ui/button";
 import type { Room, ConversationEntry, AiModel, ModelAnalysis, OutboundCall } from "@shared/schema";
 
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPersonaPlex, setShowPersonaPlex] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [personaPlexMuted, setPersonaPlexMuted] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem("voiceEnabled");
@@ -364,11 +366,9 @@ export default function Dashboard() {
               </Button>
             </Link>
             {room && (
-              <a href={`/api/rooms/${room.id}/export?format=txt`} download>
-                <Button variant="ghost" size="icon" data-testid="button-export-transcript">
-                  <Download />
-                </Button>
-              </a>
+              <Button variant="ghost" size="icon" onClick={() => setShowExport(true)} data-testid="button-export-transcript">
+                <Download />
+              </Button>
             )}
             <ThemeToggle />
           </div>
@@ -597,6 +597,7 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
+      {room && <ExportDialog roomId={room.id} open={showExport} onClose={() => setShowExport(false)} />}
     </div>
   );
 }

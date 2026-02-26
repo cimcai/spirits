@@ -482,22 +482,40 @@ export async function registerRoutes(
     }
   });
 
-  // Export full transcript for a room
+  // Export full transcript for a room (supports format=txt|csv|json, speakers=comma-separated filter, start/end ISO dates)
   app.get("/api/rooms/:roomId/export", async (req, res) => {
     try {
       const roomId = parseInt(req.params.roomId);
       const room = await storage.getRoom(roomId);
       if (!room) return res.status(404).json({ error: "Room not found" });
 
-      const entries = await storage.getEntriesByRoom(roomId);
+      let entries = await storage.getEntriesByRoom(roomId);
       const format = (req.query.format as string) || "txt";
+
+      const speakerFilter = req.query.speakers ? (req.query.speakers as string).split(",").map(s => s.trim().toLowerCase()) : null;
+      if (speakerFilter) {
+        entries = entries.filter(e => speakerFilter.includes(e.speaker.toLowerCase()));
+      }
+
+      const startFilter = req.query.start ? new Date(req.query.start as string) : null;
+      const endFilter = req.query.end ? new Date(req.query.end as string) : null;
+      if (startFilter && !isNaN(startFilter.getTime())) {
+        entries = entries.filter(e => new Date(e.timestamp) >= startFilter);
+      }
+      if (endFilter && !isNaN(endFilter.getTime())) {
+        entries = entries.filter(e => new Date(e.timestamp) <= endFilter);
+      }
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const safeName = room.name.replace(/[^a-zA-Z0-9]/g, "-");
 
       if (format === "json") {
         res.setHeader("Content-Type", "application/json");
-        res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.json"`);
+        res.setHeader("Content-Disposition", `attachment; filename="transcript-${safeName}-${dateStr}.json"`);
         return res.json({
           room: room.name,
           exportedAt: new Date().toISOString(),
+          filters: { speakers: speakerFilter, start: startFilter?.toISOString() || null, end: endFilter?.toISOString() || null },
           entryCount: entries.length,
           entries: entries.map(e => ({
             speaker: e.speaker,
@@ -507,7 +525,20 @@ export async function registerRoutes(
         });
       }
 
-      // Default: plain text
+      if (format === "csv") {
+        const csvEscape = (s: string) => `"${s.replace(/"/g, '""')}"`;
+        const csvLines = [
+          "Timestamp,Speaker,Content",
+          ...entries.map(e => {
+            const time = e.timestamp ? new Date(e.timestamp).toISOString() : "";
+            return `${time},${csvEscape(e.speaker)},${csvEscape(e.content)}`;
+          }),
+        ];
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="transcript-${safeName}-${dateStr}.csv"`);
+        return res.send(csvLines.join("\n"));
+      }
+
       const lines = entries.map(e => {
         const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
         return `[${time}] ${e.speaker}: ${e.content}`;
@@ -515,11 +546,22 @@ export async function registerRoutes(
       const text = `Transcript: ${room.name}\nExported: ${new Date().toISOString()}\nEntries: ${entries.length}\n${"—".repeat(40)}\n\n${lines.join("\n")}`;
 
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.txt"`);
+      res.setHeader("Content-Disposition", `attachment; filename="transcript-${safeName}-${dateStr}.txt"`);
       return res.send(text);
     } catch (error) {
       console.error("Error exporting transcript:", error);
       res.status(500).json({ error: "Failed to export transcript" });
+    }
+  });
+
+  app.get("/api/rooms/:roomId/speakers", async (req, res) => {
+    try {
+      const roomId = parseInt(req.params.roomId);
+      const entries = await storage.getEntriesByRoom(roomId);
+      const speakers = [...new Set(entries.map(e => e.speaker))].sort();
+      res.json(speakers);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch speakers" });
     }
   });
 
