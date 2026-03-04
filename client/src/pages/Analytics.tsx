@@ -44,8 +44,32 @@ function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString();
 }
 
+interface PhilosopherStat {
+  modelId: number;
+  name: string;
+  totalAnalyses: number;
+  handsRaised: number;
+  avgConfidence: number;
+  maxConfidence: number;
+  timesTriggered: number;
+  triggerRate: number;
+  thumbsUp: number;
+  thumbsDown: number;
+  approvalRate: number;
+}
+
+interface PhilosopherStatsData {
+  philosophers: PhilosopherStat[];
+  totals: {
+    totalAnalyses: number;
+    totalHandsRaised: number;
+    totalTriggered: number;
+    totalRatings: number;
+  };
+}
+
 export default function Analytics() {
-  const [activeTab, setActiveTab] = useState<"summary" | "costs" | "logs" | "export">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "costs" | "logs" | "export" | "spirits">("summary");
 
   const { data: summary, isLoading: summaryLoading } = useQuery<LatencySummary>({
     queryKey: ["/api/latency/summary"],
@@ -96,6 +120,14 @@ export default function Analytics() {
               Export
             </Button>
             <Button
+              variant={activeTab === "spirits" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveTab("spirits")}
+              data-testid="button-tab-spirits"
+            >
+              Spirits
+            </Button>
+            <Button
               variant={activeTab === "logs" ? "default" : "outline"}
               size="sm"
               onClick={() => setActiveTab("logs")}
@@ -114,6 +146,8 @@ export default function Analytics() {
           <CostsView summary={summary} isLoading={summaryLoading} />
         ) : activeTab === "export" ? (
           <ExportView />
+        ) : activeTab === "spirits" ? (
+          <SpiritsView />
         ) : (
           <LogsView logs={logs} isLoading={logsLoading} />
         )}
@@ -1113,5 +1147,139 @@ function LogsView({ logs, isLoading }: { logs?: LatencyLog[]; isLoading: boolean
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function SpiritsView() {
+  const [sortBy, setSortBy] = useState<"handsRaised" | "avgConfidence" | "triggerRate" | "approvalRate">("handsRaised");
+
+  const { data, isLoading } = useQuery<PhilosopherStatsData>({
+    queryKey: ["/api/philosopher-stats"],
+    refetchInterval: 15000,
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  const sorted = [...data.philosophers].sort((a, b) => {
+    if (sortBy === "approvalRate") {
+      if (a.approvalRate === -1 && b.approvalRate === -1) return b.handsRaised - a.handsRaised;
+      if (a.approvalRate === -1) return 1;
+      if (b.approvalRate === -1) return -1;
+      return b.approvalRate - a.approvalRate;
+    }
+    return (b as any)[sortBy] - (a as any)[sortBy];
+  });
+
+  const { totals } = data;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card data-testid="stat-total-analyses">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total Analyses</p>
+            <p className="text-2xl font-bold">{totals.totalAnalyses.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-hands-raised">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Hands Raised</p>
+            <p className="text-2xl font-bold">{totals.totalHandsRaised.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">{totals.totalAnalyses > 0 ? Math.round((totals.totalHandsRaised / totals.totalAnalyses) * 100) : 0}% of analyses</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-times-triggered">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Times Triggered</p>
+            <p className="text-2xl font-bold">{totals.totalTriggered.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">{totals.totalHandsRaised > 0 ? Math.round((totals.totalTriggered / totals.totalHandsRaised) * 100) : 0}% trigger rate</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-total-ratings">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total Ratings</p>
+            <p className="text-2xl font-bold">{totals.totalRatings.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base" data-testid="text-spirits-leaderboard">Spirit Leaderboard</CardTitle>
+            <div className="flex gap-1.5">
+              {([
+                { key: "handsRaised", label: "Most Active" },
+                { key: "avgConfidence", label: "Highest Confidence" },
+                { key: "triggerRate", label: "Most Triggered" },
+                { key: "approvalRate", label: "Best Rated" },
+              ] as const).map(opt => (
+                <Button
+                  key={opt.key}
+                  variant={sortBy === opt.key ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => setSortBy(opt.key)}
+                  data-testid={`button-sort-${opt.key}`}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-border">
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground">#</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground">Philosopher</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">Hands Raised</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">Avg Conf.</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">Max Conf.</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">Triggered</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">Trigger Rate</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">👍</th>
+                  <th className="pb-2 pr-4 font-medium text-muted-foreground text-right">👎</th>
+                  <th className="pb-2 font-medium text-muted-foreground text-right">Approval</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((s, i) => (
+                  <tr key={s.modelId} className="border-b border-border/50 hover:bg-muted/50" data-testid={`row-spirit-${s.modelId}`}>
+                    <td className="py-2.5 pr-4 text-muted-foreground">{i + 1}</td>
+                    <td className="py-2.5 pr-4 font-medium" data-testid={`text-spirit-name-${s.modelId}`}>{s.name}</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums">{s.handsRaised}</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums">{s.avgConfidence}%</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums">{s.maxConfidence}%</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums">{s.timesTriggered}</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums">{s.triggerRate}%</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums text-green-500">{s.thumbsUp}</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums text-red-500">{s.thumbsDown}</td>
+                    <td className="py-2.5 text-right">
+                      {s.approvalRate >= 0 ? (
+                        <Badge variant={s.approvalRate >= 75 ? "default" : s.approvalRate >= 50 ? "secondary" : "destructive"} className="text-xs tabular-nums" data-testid={`badge-approval-${s.modelId}`}>
+                          {s.approvalRate}%
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

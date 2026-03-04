@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { insertConversationEntrySchema, insertAiModelSchema, rooms as roomsTable, pixelCanvas } from "@shared/schema";
+import { insertConversationEntrySchema, insertAiModelSchema, rooms as roomsTable, pixelCanvas, modelAnalyses, responseRatings, aiModels } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
@@ -1834,6 +1834,90 @@ Return JSON: {"imagePrompt": "detailed prompt...", "quote": "short quote...", "t
     } catch (error) {
       console.error("Error fetching latency summary:", error);
       res.status(500).json({ error: "Failed to fetch latency summary" });
+    }
+  });
+
+  app.get("/api/philosopher-stats", async (_req, res) => {
+    try {
+      const allAnalyses = await db.select().from(modelAnalyses);
+      const allRatings = await db.select().from(responseRatings);
+      const allModels = await db.select().from(aiModels);
+
+      const modelMap = new Map(allModels.map(m => [m.id, m.name]));
+
+      const statsMap = new Map<number, {
+        modelId: number;
+        name: string;
+        totalAnalyses: number;
+        handsRaised: number;
+        avgConfidence: number;
+        maxConfidence: number;
+        timesTriggered: number;
+        triggerRate: number;
+        thumbsUp: number;
+        thumbsDown: number;
+        approvalRate: number;
+        recentConfidences: number[];
+      }>();
+
+      for (const a of allAnalyses) {
+        if (!statsMap.has(a.modelId)) {
+          statsMap.set(a.modelId, {
+            modelId: a.modelId,
+            name: modelMap.get(a.modelId) || `Spirit #${a.modelId}`,
+            totalAnalyses: 0,
+            handsRaised: 0,
+            avgConfidence: 0,
+            maxConfidence: 0,
+            timesTriggered: 0,
+            triggerRate: 0,
+            thumbsUp: 0,
+            thumbsDown: 0,
+            approvalRate: 0,
+            recentConfidences: [],
+          });
+        }
+        const s = statsMap.get(a.modelId)!;
+        s.totalAnalyses++;
+        if (a.shouldSpeak) {
+          s.handsRaised++;
+          s.recentConfidences.push(a.confidence);
+        }
+        if (a.confidence > s.maxConfidence) s.maxConfidence = a.confidence;
+        if (a.isTriggered) s.timesTriggered++;
+      }
+
+      for (const r of allRatings) {
+        const s = statsMap.get(r.modelId);
+        if (!s) continue;
+        if (r.rating > 0) s.thumbsUp++;
+        if (r.rating < 0) s.thumbsDown++;
+      }
+
+      const stats = [...statsMap.values()].map(s => {
+        const totalConf = s.recentConfidences.reduce((a, b) => a + b, 0);
+        s.avgConfidence = s.recentConfidences.length > 0 ? Math.round(totalConf / s.recentConfidences.length) : 0;
+        s.triggerRate = s.handsRaised > 0 ? Math.round((s.timesTriggered / s.handsRaised) * 100) : 0;
+        const totalRatings = s.thumbsUp + s.thumbsDown;
+        s.approvalRate = totalRatings > 0 ? Math.round((s.thumbsUp / totalRatings) * 100) : -1;
+        delete (s as any).recentConfidences;
+        return s;
+      });
+
+      stats.sort((a, b) => b.handsRaised - a.handsRaised);
+
+      res.json({
+        philosophers: stats,
+        totals: {
+          totalAnalyses: allAnalyses.length,
+          totalHandsRaised: allAnalyses.filter(a => a.shouldSpeak).length,
+          totalTriggered: allAnalyses.filter(a => a.isTriggered).length,
+          totalRatings: allRatings.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching philosopher stats:", error);
+      res.status(500).json({ error: "Failed to fetch philosopher stats" });
     }
   });
 
