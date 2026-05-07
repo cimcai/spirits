@@ -5,6 +5,7 @@ import { insertConversationEntrySchema, insertAiModelSchema } from "@shared/sche
 import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import WebSocket from "ws";
+import { activityPubRouter } from "./activitypub/routes";
 
 const PERSONAPLEX_HOST = "cjuzwdji4o9zi2-8998.proxy.runpod.net";
 
@@ -132,6 +133,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // ActivityPub endpoints
+  app.use(activityPubRouter);
+
   app.get("/api/docs", (_req, res) => {
     const baseUrl = `${_req.protocol}://${_req.get("host")}`;
     res.json({
@@ -357,7 +361,7 @@ export async function registerRoutes(
   // Get AI models
   app.get("/api/models", async (req, res) => {
     try {
-      const models = await storage.getAllAiModels();
+      const models = await storage.getAllAiModelsWithUsernames();
       res.json(models);
     } catch (error) {
       console.error("Error fetching models:", error);

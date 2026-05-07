@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ThumbsUp, ThumbsDown, Share2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Share2, Copy } from "lucide-react";
+import { Link } from "wouter";
 import type { AiModel, ModelAnalysis, ResponseRating, ConversationEntry } from "@shared/schema";
 
 interface AiModelPanelProps {
-  model: AiModel;
+  model: AiModel & { preferredUsername?: string };
   analyses: ModelAnalysis[];
   isProcessing?: boolean;
   roomId?: number;
@@ -171,7 +172,9 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <CardTitle className="text-base">{model.name}</CardTitle>
+              <Link href={`/spirits/${model.id}`}>
+                <CardTitle className="text-base cursor-pointer hover:underline">{model.name}</CardTitle>
+              </Link>
               {buttonIndex && (
                 <Badge variant="outline" className="text-xs font-mono" data-testid={`badge-button-${model.id}`}>
                   {buttonIndex}
@@ -190,6 +193,16 @@ export function AiModelPanel({ model, analyses, isProcessing = false, roomId, la
               )}
             </div>
             <p className="text-xs text-muted-foreground truncate">{model.description}</p>
+            {model.preferredUsername && (
+              <button
+                className="text-xs text-muted-foreground/60 font-mono hover:text-muted-foreground flex items-center gap-1 mt-0.5"
+                onClick={() => navigator.clipboard.writeText(`@${model.preferredUsername}@${window.location.host}`)}
+                title="Copy federation handle"
+              >
+                <Copy className="w-3 h-3 shrink-0" />
+                @{model.preferredUsername}@{window.location.host}
+              </button>
+            )}
           </div>
         </div>
       </CardHeader>

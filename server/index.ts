@@ -2,10 +2,14 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { seedDatabase } from "./seed";
+import { seedDatabase, backfillApIdentities, seedMockOutboundCalls } from "./seed";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Trust the reverse proxy (nginx) so req.protocol reflects X-Forwarded-Proto: https
+// This ensures ActivityPub actor URLs are constructed with the correct https:// scheme.
+app.set("trust proxy", true);
 
 declare module "http" {
   interface IncomingMessage {
@@ -62,6 +66,8 @@ app.use((req, res, next) => {
 
 (async () => {
   await seedDatabase();
+  await backfillApIdentities();
+  await seedMockOutboundCalls();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -95,8 +101,8 @@ app.use((req, res, next) => {
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
-      reusePort: true,
+      host: process.env.HTTP_HOST,
+      reusePort: process.env.HTTP_RESUE_PORT,
     },
     () => {
       log(`serving on port ${port}`);

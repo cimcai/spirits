@@ -1,0 +1,175 @@
+##############################################################################
+# Mastodon Interop Test Stack
+#
+# Usage (from spirits/ root):
+#   bash test_mastodon_interop.sh
+#
+# Or manually:
+#   cd test && docker compose -f docker-compose.test.yml up -d --build
+##############################################################################
+
+name: spirits-mastodon-interop
+
+networks:
+  interop:
+    driver: bridge
+
+volumes:
+  postgres-spirits-data:
+  postgres-mastodon-data:
+  redis-data:
+  mastodon-assets:
+  mastodon-system:
+
+services:
+  # ── postgres for spirits ──────────────────────────────────────────────────
+  postgres-spirits:
+    image: postgres:16-alpine
+    networks: [interop]
+    environment:
+      POSTGRES_DB: spirits
+      POSTGRES_USER: spirits
+      POSTGRES_PASSWORD: spirits_password
+    volumes:
+      - postgres-spirits-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spirits -d spirits"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Spirits DB schema init (runs drizzle-kit push, then exits) ────────────
+  # Uses the builder stage so drizzle-kit (a devDependency) is available.
+  spirits-init:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: builder
+    networks: [interop]
+    depends_on:
+      postgres-spirits:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://spirits:spirits_password@postgres-spirits:5432/spirits
+    command: sh -c "yes | npx drizzle-kit push 2>&1"
+    restart: "no"
+
+  # ── Spirits server ────────────────────────────────────────────────────────
+  spirits:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    networks: [interop]
+    depends_on:
+      spirits-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://spirits:spirits_password@postgres-spirits:5432/spirits
+      PORT: "5000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5000/.well-known/webfinger?resource=acct:x@x',r=>{process.exit(r.statusCode<500?0:1)}).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ── postgres for mastodon ─────────────────────────────────────────────────
+  postgres-mastodon:
+    image: postgres:16-alpine
+    networks: [interop]
+    environment:
+      POSTGRES_DB: mastodon
+      POSTGRES_USER: mastodon
+      POSTGRES_PASSWORD: mastodon_password
+    volumes:
+      - postgres-mastodon-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mastodon -d mastodon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    networks: [interop]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Mastodon DB init (runs rails db:migrate, then exits) ─────────────────
+  mastodon-init:
+    image: ghcr.io/mastodon/mastodon:v4.3.3
+    networks: [interop]
+    command: bundle exec rails db:migrate
+    depends_on:
+      postgres-mastodon:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: mastodon.env
+    restart: "no"
+
+  # ── Mastodon web ──────────────────────────────────────────────────────────
+  mastodon-web:
+    image: ghcr.io/mastodon/mastodon:v4.3.3
+    networks: [interop]
+    command: bundle exec puma -C config/puma.rb
+    depends_on:
+      mastodon-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: mastodon.env
+    volumes:
+      - mastodon-system:/mastodon/public/system
+      - mastodon-assets:/mastodon/public/assets
+      # Mount local CA cert so Mastodon trusts HTTPS on spirits.test
+      - ./nginx/certs/ca.crt:/etc/ssl/custom/ca.crt:ro
+    # Note: mastodon.env sets SSL_CERT_FILE=/etc/ssl/custom/ca.crt
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # ── Mastodon sidekiq (background federation worker) ───────────────────────
+  mastodon-sidekiq:
+    image: ghcr.io/mastodon/mastodon:v4.3.3
+    networks: [interop]
+    command: bundle exec sidekiq
+    depends_on:
+      mastodon-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: mastodon.env
+    volumes:
+      - mastodon-system:/mastodon/public/system
+      - ./nginx/certs/ca.crt:/etc/ssl/custom/ca.crt:ro
+
+  # ── nginx HTTPS reverse proxy ─────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    networks:
+      interop:
+        # These aliases make spirits.test and mastodon.test resolve to this
+        # nginx container INSIDE the Docker network — required so that
+        # mastodon-sidekiq can fetch AP actors from spirits over HTTPS.
+        aliases:
+          - spirits.test
+          - mastodon.test
+    depends_on:
+      - spirits
+      - mastodon-web
+    ports:
+      # Expose to host so curl and Playwright can reach both .test domains
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro

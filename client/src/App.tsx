@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import Analytics from "@/pages/Analytics";
 import ApiDocs from "@/pages/ApiDocs";
 import AdminQueue from "@/pages/AdminQueue";
+import SpiritProfile from "@/pages/SpiritProfile";
 
 function Router() {
   return (
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/api-docs" component={ApiDocs} />
       <Route path="/admin/queue" component={AdminQueue} />
+      <Route path="/spirits/:id" component={SpiritProfile} />
       <Route component={NotFound} />
     </Switch>
   );
