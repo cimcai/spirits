@@ -1,3 +1,4 @@
+import { generateKeyPair } from "./activitypub/crypto";
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
@@ -10,7 +11,7 @@ import {
   type LatencyLog, type InsertLatencyLog,
   type ResponseRating, type InsertResponseRating,
   type PendingSubmission, type InsertPendingSubmission,
-  type User, type InsertUser, users,
+  type User, type InsertUser, users, internetUsernames, cryptoKeyPairs, type InternetUsername, type CryptoKeyPair,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -35,6 +36,7 @@ export interface IStorage {
   // AI Models
   getAiModel(id: number): Promise<AiModel | undefined>;
   getAllAiModels(): Promise<AiModel[]>;
+  getAllAiModelsWithUsernames(): Promise<Array<AiModel & { preferredUsername?: string }>>;
   createAiModel(model: InsertAiModel): Promise<AiModel>;
   updateAiModel(id: number, updates: Partial<InsertAiModel>): Promise<AiModel | undefined>;
 
@@ -143,9 +145,36 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(aiModels).where(eq(aiModels.isActive, true));
   }
 
+  async getAllAiModelsWithUsernames(): Promise<Array<AiModel & { preferredUsername?: string }>> {
+    const models = await db.select().from(aiModels).where(eq(aiModels.isActive, true));
+    const usernames = await db.select().from(internetUsernames);
+    const usernameByModelId = new Map(usernames.map(u => [u.aiModelId, u.username]));
+    return models.map(m => ({ ...m, preferredUsername: usernameByModelId.get(m.id) }));
+  }
+
   async createAiModel(model: InsertAiModel): Promise<AiModel> {
-    const [created] = await db.insert(aiModels).values(model).returning();
-    return created;
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(aiModels).values(model).returning();
+      
+      const username = created.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+
+      await tx.insert(internetUsernames).values({
+        username,
+        aiModelId: created.id,
+      });
+
+      const { publicKey, privateKey } = await generateKeyPair();
+      await tx.insert(cryptoKeyPairs).values({
+        publicKey,
+        privateKey,
+        aiModelId: created.id,
+      });
+
+      return created;
+    });
   }
 
   async updateAiModel(id: number, updates: Partial<InsertAiModel>): Promise<AiModel | undefined> {

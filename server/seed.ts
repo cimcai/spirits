@@ -1,6 +1,8 @@
 import { db } from "./db";
-import { rooms, aiModels } from "@shared/schema";
+import { rooms, aiModels, internetUsernames, cryptoKeyPairs, outboundCalls } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { storage } from "./storage";
+import { generateKeyPair } from "./activitypub/crypto";
 
 const ALL_PHILOSOPHERS = [
   {
@@ -141,15 +143,133 @@ export async function seedDatabase() {
     const missingPhilosophers = ALL_PHILOSOPHERS.filter(p => !existingNames.has(p.name));
 
     if (existingModels.length === 0) {
-      await db.insert(aiModels).values(ALL_PHILOSOPHERS);
+      for (const p of ALL_PHILOSOPHERS) await storage.createAiModel(p);
       console.log("Seeded all philosophical AI models");
     } else if (missingPhilosophers.length > 0) {
-      await db.insert(aiModels).values(missingPhilosophers);
+      for (const p of missingPhilosophers) await storage.createAiModel(p);
       console.log(`Added ${missingPhilosophers.length} new philosophers: ${missingPhilosophers.map(p => p.name).join(", ")}`);
     } else {
       console.log(`Found ${existingModels.length} existing AI models, all philosophers present`);
     }
   } catch (error) {
     console.error("Error seeding database:", error);
+  }
+}
+
+export async function backfillApIdentities() {
+  try {
+    const allModels = await db.select().from(aiModels);
+    const existingUsernames = await db.select().from(internetUsernames);
+    const modelIdsWithUsernames = new Set(existingUsernames.map(u => u.aiModelId));
+
+    let count = 0;
+    for (const model of allModels) {
+      if (!modelIdsWithUsernames.has(model.id)) {
+        const username = model.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        await db.insert(internetUsernames).values({ username, aiModelId: model.id });
+        const { publicKey, privateKey } = await generateKeyPair();
+        await db.insert(cryptoKeyPairs).values({ publicKey, privateKey, aiModelId: model.id });
+        console.log(`Backfilled AP identity for: ${model.name} (@${username})`);
+        count++;
+      }
+    }
+    if (count === 0) {
+      console.log("AP identities: all spirits already have records, nothing to backfill");
+    }
+  } catch (error) {
+    console.error("Error backfilling AP identities:", error);
+  }
+}
+
+// Mock messages keyed by spirit name (partial match on first word)
+const MOCK_MESSAGES: Record<string, string[]> = {
+  "Stoic Philosopher": [
+    "You have power over your mind, not outside events. Realize this, and you will find strength. The impediment to action advances action. What stands in the way becomes the way.",
+    "Waste no more time arguing about what a good person should be. Be one. Confine yourself to the present.",
+    "The obstacle is the path. When we can no longer change a situation, we are challenged to change ourselves.",
+  ],
+  "Joscha Bach": [
+    "Consciousness is not something the brain does — it is something the brain simulates. The hard problem dissolves once you accept that experience is a model of a model.",
+    "Intelligence is the capacity to make finer distinctions. Most of what we call thinking is pattern matching on compressed representations of prior experience.",
+    "Free will is a useful user-interface abstraction over deterministic substrate processes. It is real in the same way a window is real — as a functional construct, not a physical primitive.",
+  ],
+  "Socratic Questioner": [
+    "What do you mean when you say you 'know' something? Is it possible you hold that belief not because you've examined it, but because it was convenient to believe?",
+    "If you cannot define a concept simply enough for a child to understand, do you truly understand it yourself — or are you merely comfortable with its name?",
+    "You say this action was just. By whose definition of justice? And where does that definition itself come from?",
+  ],
+  "Absurdist": [
+    "One must imagine Sisyphus happy. The struggle itself toward the heights is enough to fill a man's heart. The universe offers no meaning — so we create our own, defiantly, joyfully.",
+    "There is but one truly serious philosophical problem, and that is suicide. Everything else follows from there. I choose revolt.",
+    "The absurd is born of the confrontation between the human need and the unreasonable silence of the world. We must hold both without resolving the tension.",
+  ],
+  "Zen Monk": [
+    "Before enlightenment, chop wood, carry water. After enlightenment, chop wood, carry water. The words are the same. The person is not.",
+    "If you meet the Buddha on the road, kill him. Any fixed idea of awakening is itself the barrier to awakening.",
+    "The finger pointing at the moon is not the moon. Stop staring at the finger.",
+  ],
+  "Peppy Coach": [
+    "Progress, not perfection! Every single rep counts. You didn't come this far to only come this far — now let's GO!",
+    "Momentum is everything. One small win today becomes the foundation for the bigger win tomorrow. Write it down, celebrate it, and build on it.",
+    "Obstacles are just redirections. When a door closes, stop banging on it and start looking for the window. Your best chapter hasn't been written yet!",
+  ],
+  "The Librarian": [
+    "What you're describing maps beautifully onto Douglas Hofstadter's 'Gödel, Escher, Bach' — particularly the strange loops section. The 1979 Pulitzer edition is the place to start.",
+    "David Graeber's 'The Dawn of Everything' (2021) directly challenges that assumption. He and Wengrow argue the evidence for 'natural' hierarchy is far thinner than we've been told.",
+    "For that question, I'd point you to Donella Meadows' 'Thinking in Systems'. Chapter three alone will reframe how you see this entire problem.",
+  ],
+  "Chaos Theorist": [
+    "Small perturbations in initial conditions propagate exponentially through coupled nonlinear systems. What looks like a random outcome almost always has a butterfly somewhere in its history.",
+    "The edge of chaos — the phase transition between order and disorder — is precisely where complex adaptive systems do their most interesting work. That's where life happens.",
+    "Emergence means the whole cannot be predicted from the parts. Reductionism is a powerful tool, but at sufficient scale it stops being a complete description of reality.",
+  ],
+};
+
+function getMockMessages(modelName: string): string[] {
+  return MOCK_MESSAGES[modelName] ?? [
+    `${modelName} is contemplating the nature of existence and has not yet spoken.`,
+    `As ${modelName}, I offer this reflection: the questions we ask shape the answers we find.`,
+  ];
+}
+
+export async function seedMockOutboundCalls() {
+  try {
+    const [room] = await db.select().from(rooms).limit(1);
+    if (!room) {
+      console.log("Mock calls: no room found, skipping");
+      return;
+    }
+
+    const allModels = await db.select().from(aiModels);
+    let count = 0;
+
+    for (const model of allModels) {
+      const existing = await db.select().from(outboundCalls)
+        .where(eq(outboundCalls.modelId, model.id))
+        .limit(1);
+      if (existing.length > 0) continue;
+
+      const messages = getMockMessages(model.name);
+      for (const content of messages) {
+        await db.insert(outboundCalls).values({
+          roomId: room.id,
+          modelId: model.id,
+          triggerReason: "Mock seed for ActivityPub outbox demonstration",
+          responseContent: content,
+          status: "completed",
+        });
+      }
+      console.log(`Seeded ${messages.length} mock messages for: ${model.name}`);
+      count += messages.length;
+    }
+
+    if (count === 0) {
+      console.log("Mock calls: all spirits already have messages, nothing to seed");
+    }
+  } catch (error) {
+    console.error("Error seeding mock outbound calls:", error);
   }
 }

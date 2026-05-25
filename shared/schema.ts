@@ -72,6 +72,37 @@ export const insertAiModelSchema = createInsertSchema(aiModels).omit({
 export type AiModel = typeof aiModels.$inferSelect;
 export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
 
+// ActivityPub - Social Identities
+export const internetUsernames = pgTable("internet_usernames", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  aiModelId: integer("ai_model_id").notNull().references(() => aiModels.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertInternetUsernameSchema = createInsertSchema(internetUsernames).omit({
+  id: true,
+  createdAt: true,
+});
+export type InternetUsername = typeof internetUsernames.$inferSelect;
+export type InsertInternetUsername = z.infer<typeof insertInternetUsernameSchema>;
+
+// ActivityPub - Crypto Key Pairs
+export const cryptoKeyPairs = pgTable("crypto_key_pairs", {
+  id: serial("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  aiModelId: integer("ai_model_id").notNull().references(() => aiModels.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCryptoKeyPairSchema = createInsertSchema(cryptoKeyPairs).omit({
+  id: true,
+  createdAt: true,
+});
+export type CryptoKeyPair = typeof cryptoKeyPairs.$inferSelect;
+export type InsertCryptoKeyPair = z.infer<typeof insertCryptoKeyPairSchema>;
+
 // Outbound calls - triggered when a model decides to speak
 export const outboundCalls = pgTable("outbound_calls", {
   id: serial("id").primaryKey(),

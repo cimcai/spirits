@@ -1,0 +1,4 @@
+mastodon.env
+nginx/certs/
+.mastodon_setup_done
+
