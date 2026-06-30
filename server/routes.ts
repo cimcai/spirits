@@ -6,6 +6,13 @@ import multer from "multer";
 import { openai, analyzeConversation, chatCompletion, isValidModel, getAllValidModels, getProvider } from "./ai-provider";
 import WebSocket from "ws";
 import { activityPubRouter } from "./activitypub/routes";
+import {
+  parseTranscriptFormat,
+  transcriptFilename,
+  buildTranscriptJson,
+  renderTranscriptText,
+  renderTranscriptMarkdown,
+} from "./transcript";
 
 const PERSONAPLEX_HOST = "cjuzwdji4o9zi2-8998.proxy.runpod.net";
 
@@ -215,33 +222,25 @@ export async function registerRoutes(
       if (!room) return res.status(404).json({ error: "Room not found" });
 
       const entries = await storage.getEntriesByRoom(roomId);
-      const format = (req.query.format as string) || "txt";
+      const format = parseTranscriptFormat(req.query.format);
+      const filename = transcriptFilename(room, format);
 
       if (format === "json") {
         res.setHeader("Content-Type", "application/json");
-        res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.json"`);
-        return res.json({
-          room: room.name,
-          exportedAt: new Date().toISOString(),
-          entryCount: entries.length,
-          entries: entries.map(e => ({
-            speaker: e.speaker,
-            content: e.content,
-            timestamp: e.timestamp,
-          })),
-        });
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.json(buildTranscriptJson(room, entries));
+      }
+
+      if (format === "md") {
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.send(renderTranscriptMarkdown(room, entries));
       }
 
       // Default: plain text
-      const lines = entries.map(e => {
-        const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "";
-        return `[${time}] ${e.speaker}: ${e.content}`;
-      });
-      const text = `Transcript: ${room.name}\nExported: ${new Date().toISOString()}\nEntries: ${entries.length}\n${"—".repeat(40)}\n\n${lines.join("\n")}`;
-
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="transcript-${room.name}-${new Date().toISOString().slice(0, 10)}.txt"`);
-      return res.send(text);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(renderTranscriptText(room, entries));
     } catch (error) {
       console.error("Error exporting transcript:", error);
       res.status(500).json({ error: "Failed to export transcript" });
